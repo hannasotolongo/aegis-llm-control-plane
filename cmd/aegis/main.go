@@ -13,6 +13,7 @@ import (
 	"github.com/hannasotolongo/aegis-llm-control-plane/internal/api"
 	"github.com/hannasotolongo/aegis-llm-control-plane/internal/cluster"
 	"github.com/hannasotolongo/aegis-llm-control-plane/internal/predictor"
+	"github.com/hannasotolongo/aegis-llm-control-plane/internal/risk"
 	"github.com/hannasotolongo/aegis-llm-control-plane/internal/scheduler"
 	"github.com/hannasotolongo/aegis-llm-control-plane/internal/simulator"
 	"github.com/hannasotolongo/aegis-llm-control-plane/internal/telemetry"
@@ -66,9 +67,12 @@ func main() {
 		30*time.Second,
 	)
 
-	predictiveScheduler := scheduler.NewPredictiveService(
+	riskEvaluator := risk.NewEvaluator()
+
+	riskAwareScheduler := scheduler.NewRiskAwareService(
 		store,
 		predictionResults,
+		riskEvaluator,
 	)
 
 	ctx, stop := signal.NotifyContext(
@@ -118,7 +122,7 @@ func main() {
 	}()
 
 	go func() {
-		err := predictiveScheduler.Run(
+		err := riskAwareScheduler.Run(
 			ctx,
 			2*time.Second,
 		)
