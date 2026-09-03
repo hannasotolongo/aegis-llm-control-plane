@@ -66,7 +66,11 @@ func TestValidateWorkloadAcceptsValidPendingWorkload(t *testing.T) {
 		ModelID:          "llama-3",
 		ArrivalTime:      time.Now(),
 		Priority:         PriorityStandard,
+		PromptTokens:     1200,
+		MaxOutputTokens:  400,
+		BatchSize:        1,
 		RequiredMemoryMB: 16000,
+		KVCacheMemoryMB:  2000,
 		EstimatedCompute: 45,
 		ExpectedDuration: 2 * time.Second,
 		LatencySLO:       500 * time.Millisecond,
@@ -118,6 +122,68 @@ func TestValidateWorkloadRejectsZeroMemoryRequirement(t *testing.T) {
 
 	if err := ValidateWorkload(workload); err == nil {
 		t.Fatal("expected error for zero GPU memory requirement")
+	}
+}
+
+func TestValidateWorkloadRejectsNegativePromptTokens(t *testing.T) {
+	workload := Workload{
+		ID:               "workload-1",
+		ModelID:          "llama-3",
+		Priority:         PriorityStandard,
+		PromptTokens:     -1,
+		RequiredMemoryMB: 16000,
+		State:            WorkloadPending,
+	}
+
+	if err := ValidateWorkload(workload); err == nil {
+		t.Fatal("expected error for negative prompt tokens")
+	}
+}
+
+func TestValidateWorkloadRejectsNegativeMaxOutputTokens(t *testing.T) {
+	workload := Workload{
+		ID:               "workload-1",
+		ModelID:          "llama-3",
+		Priority:         PriorityStandard,
+		MaxOutputTokens:  -1,
+		RequiredMemoryMB: 16000,
+		State:            WorkloadPending,
+	}
+
+	if err := ValidateWorkload(workload); err == nil {
+		t.Fatal("expected error for negative max output tokens")
+	}
+}
+
+func TestValidateWorkloadRejectsNegativeBatchSize(t *testing.T) {
+	workload := Workload{
+		ID:               "workload-1",
+		ModelID:          "llama-3",
+		Priority:         PriorityStandard,
+		BatchSize:        -1,
+		RequiredMemoryMB: 16000,
+		State:            WorkloadPending,
+	}
+
+	if err := ValidateWorkload(workload); err == nil {
+		t.Fatal("expected error for negative batch size")
+	}
+}
+
+func TestValidateWorkloadRejectsKVCacheLargerThanTotalMemory(t *testing.T) {
+	workload := Workload{
+		ID:               "workload-1",
+		ModelID:          "llama-3",
+		Priority:         PriorityStandard,
+		RequiredMemoryMB: 8000,
+		KVCacheMemoryMB:  12000,
+		State:            WorkloadPending,
+	}
+
+	if err := ValidateWorkload(workload); err == nil {
+		t.Fatal(
+			"expected error when KV cache memory exceeds required memory",
+		)
 	}
 }
 

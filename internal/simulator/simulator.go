@@ -29,9 +29,12 @@ func NewWithScenario(
 
 func (s *Simulator) SeedWorkers(ctx context.Context, count int) error {
 	for i := 0; i < count; i++ {
+		nodeID := fmt.Sprintf("node-%d", i+1)
+		rackID := fmt.Sprintf("rack-%d", (i%2)+1)
+
 		worker := cluster.Worker{
 			ID:                  fmt.Sprintf("worker-%d", i+1),
-			NodeID:              fmt.Sprintf("node-%d", i+1),
+			NodeID:              nodeID,
 			GPUType:             "NVIDIA-H100",
 			TotalMemoryMB:       81920,
 			AvailableMemoryMB:   81920,
@@ -40,7 +43,16 @@ func (s *Simulator) SeedWorkers(ctx context.Context, count int) error {
 			ActiveWorkloadCount: 0,
 			State:               cluster.WorkerHealthy,
 			LastHeartbeat:       time.Now(),
-			TopologyDomain:      fmt.Sprintf("rack-%d", (i%2)+1),
+
+			Topology: cluster.GPUTopology{
+				NodeID:       nodeID,
+				RackID:       rackID,
+				GPUIndex:     i,
+				NVLinkDomain: fmt.Sprintf("nvlink-%d", (i/2)+1),
+				Interconnect: cluster.InterconnectNVLink,
+			},
+
+			TopologyDomain: rackID,
 		}
 
 		if err := s.store.RegisterWorker(ctx, worker); err != nil {
@@ -58,7 +70,11 @@ func (s *Simulator) SeedWorkloads(ctx context.Context) error {
 			ModelID:          "llama-3-8b",
 			ArrivalTime:      time.Now(),
 			Priority:         cluster.PriorityStandard,
+			PromptTokens:     2048,
+			MaxOutputTokens:  512,
+			BatchSize:        1,
 			RequiredMemoryMB: 18000,
+			KVCacheMemoryMB:  2000,
 			EstimatedCompute: 0.55,
 			ExpectedDuration: 2 * time.Minute,
 			LatencySLO:       500 * time.Millisecond,
@@ -70,7 +86,11 @@ func (s *Simulator) SeedWorkloads(ctx context.Context) error {
 			ModelID:          "mistral-7b",
 			ArrivalTime:      time.Now(),
 			Priority:         cluster.PriorityCritical,
+			PromptTokens:     8192,
+			MaxOutputTokens:  1024,
+			BatchSize:        4,
 			RequiredMemoryMB: 24000,
+			KVCacheMemoryMB:  6000,
 			EstimatedCompute: 0.75,
 			ExpectedDuration: 90 * time.Second,
 			LatencySLO:       250 * time.Millisecond,
@@ -82,7 +102,11 @@ func (s *Simulator) SeedWorkloads(ctx context.Context) error {
 			ModelID:          "vision-model",
 			ArrivalTime:      time.Now(),
 			Priority:         cluster.PriorityBatch,
+			PromptTokens:     1024,
+			MaxOutputTokens:  256,
+			BatchSize:        8,
 			RequiredMemoryMB: 12000,
+			KVCacheMemoryMB:  1000,
 			EstimatedCompute: 0.40,
 			ExpectedDuration: 3 * time.Minute,
 			LatencySLO:       time.Second,
@@ -98,13 +122,21 @@ func (s *Simulator) SeedWorkloads(ctx context.Context) error {
 
 		workerID := fmt.Sprintf("worker-%d", i+1)
 
-		placed, err := s.store.CommitPlacement(ctx, workload.ID, workerID)
+		placed, err := s.store.CommitPlacement(
+			ctx,
+			workload.ID,
+			workerID,
+		)
 		if err != nil {
 			return err
 		}
 
 		placed.State = cluster.WorkloadRunning
-		if err := s.store.UpdateWorkload(ctx, placed); err != nil {
+
+		if err := s.store.UpdateWorkload(
+			ctx,
+			placed,
+		); err != nil {
 			return err
 		}
 	}
@@ -112,7 +144,10 @@ func (s *Simulator) SeedWorkloads(ctx context.Context) error {
 	return nil
 }
 
-func (s *Simulator) Run(ctx context.Context, interval time.Duration) error {
+func (s *Simulator) Run(
+	ctx context.Context,
+	interval time.Duration,
+) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -122,23 +157,34 @@ func (s *Simulator) Run(ctx context.Context, interval time.Duration) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+
 		case <-ticker.C:
-			if err := s.updateWorkers(ctx, step); err != nil {
+			if err := s.updateWorkers(
+				ctx,
+				step,
+			); err != nil {
 				return err
 			}
+
 			step++
 		}
 	}
 }
 
-func (s *Simulator) updateWorkers(ctx context.Context, step int) error {
+func (s *Simulator) updateWorkers(
+	ctx context.Context,
+	step int,
+) error {
 	workers, err := s.store.ListWorkers(ctx)
 	if err != nil {
 		return err
 	}
 
 	for i, worker := range workers {
-		utilization, err := s.scenario.Utilization(step, i)
+		utilization, err := s.scenario.Utilization(
+			step,
+			i,
+		)
 		if err != nil {
 			return err
 		}
@@ -147,7 +193,10 @@ func (s *Simulator) updateWorkers(ctx context.Context, step int) error {
 		worker.MemoryUtilization = utilization.Memory
 		worker.LastHeartbeat = time.Now()
 
-		if err := s.store.UpdateWorker(ctx, worker); err != nil {
+		if err := s.store.UpdateWorker(
+			ctx,
+			worker,
+		); err != nil {
 			return err
 		}
 	}

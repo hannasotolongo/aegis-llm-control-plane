@@ -44,6 +44,263 @@ func TestSelectWorker(t *testing.T) {
 	}
 }
 
+func TestSelectWorkerUsesStructuredRackTopology(t *testing.T) {
+	workload := cluster.Workload{
+		ID:                     "workload-1",
+		ModelID:                "llama-3-70b",
+		RequiredMemoryMB:       20000,
+		RequiredTopologyDomain: "rack-1",
+		State:                  cluster.WorkloadPending,
+	}
+
+	workers := []cluster.Worker{
+		{
+			ID:                 "worker-wrong-rack",
+			AvailableMemoryMB:  60000,
+			ComputeUtilization: 5,
+			State:              cluster.WorkerHealthy,
+			Topology: cluster.GPUTopology{
+				RackID: "rack-2",
+			},
+		},
+		{
+			ID:                 "worker-right-rack",
+			AvailableMemoryMB:  60000,
+			ComputeUtilization: 50,
+			State:              cluster.WorkerHealthy,
+			Topology: cluster.GPUTopology{
+				RackID: "rack-1",
+			},
+		},
+	}
+
+	selected, err := SelectWorker(workload, workers)
+	if err != nil {
+		t.Fatalf("SelectWorker returned error: %v", err)
+	}
+
+	if selected.ID != "worker-right-rack" {
+		t.Fatalf(
+			"expected worker-right-rack, got %q",
+			selected.ID,
+		)
+	}
+}
+
+func TestSelectWorkerRejectsStructuredTopologyMismatch(t *testing.T) {
+	workload := cluster.Workload{
+		ID:                     "workload-1",
+		RequiredMemoryMB:       1000,
+		RequiredTopologyDomain: "rack-1",
+		State:                  cluster.WorkloadPending,
+	}
+
+	workers := []cluster.Worker{
+		{
+			ID:                "worker-1",
+			AvailableMemoryMB: 81920,
+			State:             cluster.WorkerHealthy,
+			Topology: cluster.GPUTopology{
+				RackID: "rack-2",
+			},
+		},
+	}
+
+	_, err := SelectWorker(workload, workers)
+	if !errors.Is(err, ErrNoEligibleWorker) {
+		t.Fatalf(
+			"expected ErrNoEligibleWorker for topology mismatch, got %v",
+			err,
+		)
+	}
+}
+
+func TestSelectWorkerFallsBackToLegacyTopologyDomain(t *testing.T) {
+	workload := cluster.Workload{
+		ID:                     "workload-1",
+		RequiredMemoryMB:       1000,
+		RequiredTopologyDomain: "zone-a",
+		State:                  cluster.WorkloadPending,
+	}
+
+	workers := []cluster.Worker{
+		{
+			ID:                "worker-1",
+			AvailableMemoryMB: 81920,
+			State:             cluster.WorkerHealthy,
+			TopologyDomain:    "zone-a",
+		},
+	}
+
+	selected, err := SelectWorker(workload, workers)
+	if err != nil {
+		t.Fatalf("SelectWorker returned error: %v", err)
+	}
+
+	if selected.ID != "worker-1" {
+		t.Fatalf("expected worker-1, got %q", selected.ID)
+	}
+}
+
+func TestSelectWorkerMatchesRequiredNode(t *testing.T) {
+	workload := cluster.Workload{
+		ID:               "workload-node",
+		RequiredMemoryMB: 1000,
+		State:            cluster.WorkloadPending,
+		TopologyRequirement: cluster.TopologyRequirement{
+			RequiredNodeID: "node-2",
+		},
+	}
+
+	workers := []cluster.Worker{
+		{
+			ID:                "worker-1",
+			AvailableMemoryMB: 81920,
+			State:             cluster.WorkerHealthy,
+			Topology: cluster.GPUTopology{
+				NodeID: "node-1",
+			},
+		},
+		{
+			ID:                "worker-2",
+			AvailableMemoryMB: 81920,
+			State:             cluster.WorkerHealthy,
+			Topology: cluster.GPUTopology{
+				NodeID: "node-2",
+			},
+		},
+	}
+
+	selected, err := SelectWorker(workload, workers)
+	if err != nil {
+		t.Fatalf("SelectWorker returned error: %v", err)
+	}
+
+	if selected.ID != "worker-2" {
+		t.Fatalf("expected worker-2, got %q", selected.ID)
+	}
+}
+
+func TestSelectWorkerMatchesRequiredRack(t *testing.T) {
+	workload := cluster.Workload{
+		ID:               "workload-rack",
+		RequiredMemoryMB: 1000,
+		State:            cluster.WorkloadPending,
+		TopologyRequirement: cluster.TopologyRequirement{
+			RequiredRackID: "rack-2",
+		},
+	}
+
+	workers := []cluster.Worker{
+		{
+			ID:                "worker-1",
+			AvailableMemoryMB: 81920,
+			State:             cluster.WorkerHealthy,
+			Topology: cluster.GPUTopology{
+				RackID: "rack-1",
+			},
+		},
+		{
+			ID:                "worker-2",
+			AvailableMemoryMB: 81920,
+			State:             cluster.WorkerHealthy,
+			Topology: cluster.GPUTopology{
+				RackID: "rack-2",
+			},
+		},
+	}
+
+	selected, err := SelectWorker(workload, workers)
+	if err != nil {
+		t.Fatalf("SelectWorker returned error: %v", err)
+	}
+
+	if selected.ID != "worker-2" {
+		t.Fatalf("expected worker-2, got %q", selected.ID)
+	}
+}
+
+func TestSelectWorkerMatchesRequiredNVLinkDomain(t *testing.T) {
+	workload := cluster.Workload{
+		ID:               "workload-nvlink",
+		RequiredMemoryMB: 1000,
+		State:            cluster.WorkloadPending,
+		TopologyRequirement: cluster.TopologyRequirement{
+			RequiredNVLinkDomain: "nvlink-2",
+		},
+	}
+
+	workers := []cluster.Worker{
+		{
+			ID:                "worker-1",
+			AvailableMemoryMB: 81920,
+			State:             cluster.WorkerHealthy,
+			Topology: cluster.GPUTopology{
+				NVLinkDomain: "nvlink-1",
+			},
+		},
+		{
+			ID:                "worker-2",
+			AvailableMemoryMB: 81920,
+			State:             cluster.WorkerHealthy,
+			Topology: cluster.GPUTopology{
+				NVLinkDomain: "nvlink-2",
+			},
+		},
+	}
+
+	selected, err := SelectWorker(workload, workers)
+	if err != nil {
+		t.Fatalf("SelectWorker returned error: %v", err)
+	}
+
+	if selected.ID != "worker-2" {
+		t.Fatalf("expected worker-2, got %q", selected.ID)
+	}
+}
+
+func TestSelectWorkerMatchesRequiredInterconnect(t *testing.T) {
+	workload := cluster.Workload{
+		ID:               "workload-interconnect",
+		RequiredMemoryMB: 1000,
+		State:            cluster.WorkloadPending,
+		TopologyRequirement: cluster.TopologyRequirement{
+			RequiredInterconnect: cluster.InterconnectNVLink,
+		},
+	}
+
+	workers := []cluster.Worker{
+		{
+			ID:                "worker-pcie",
+			AvailableMemoryMB: 81920,
+			State:             cluster.WorkerHealthy,
+			Topology: cluster.GPUTopology{
+				Interconnect: cluster.InterconnectPCIe,
+			},
+		},
+		{
+			ID:                "worker-nvlink",
+			AvailableMemoryMB: 81920,
+			State:             cluster.WorkerHealthy,
+			Topology: cluster.GPUTopology{
+				Interconnect: cluster.InterconnectNVLink,
+			},
+		},
+	}
+
+	selected, err := SelectWorker(workload, workers)
+	if err != nil {
+		t.Fatalf("SelectWorker returned error: %v", err)
+	}
+
+	if selected.ID != "worker-nvlink" {
+		t.Fatalf(
+			"expected worker-nvlink, got %q",
+			selected.ID,
+		)
+	}
+}
+
 func TestSelectWorkerRejectsInsufficientMemory(t *testing.T) {
 	workload := cluster.Workload{
 		ID:               "workload-1",

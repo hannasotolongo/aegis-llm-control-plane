@@ -8,77 +8,188 @@ import (
 	"github.com/hannasotolongo/aegis-llm-control-plane/internal/telemetry"
 )
 
-type fakeTelemetryStore struct {
+type testTelemetryStore struct {
 	records []telemetry.Record
 }
 
-func (s *fakeTelemetryStore) List(ctx context.Context) ([]telemetry.Record, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	result := make([]telemetry.Record, len(s.records))
-	copy(result, s.records)
-	return result, nil
+func (s *testTelemetryStore) List(
+	ctx context.Context,
+) ([]telemetry.Record, error) {
+	return append(
+		[]telemetry.Record(nil),
+		s.records...,
+	), nil
 }
 
 func TestServiceProcessesOnlyNewTelemetry(t *testing.T) {
-	base := time.Unix(100, 0)
+	baseTime := time.Date(
+		2026,
+		time.September,
+		3,
+		10,
+		0,
+		0,
+		0,
+		time.UTC,
+	)
 
-	store := &fakeTelemetryStore{
+	store := &testTelemetryStore{
 		records: []telemetry.Record{
-			{WorkerID: "worker-1", Timestamp: base, MemoryUtilization: 40, ComputeUtilization: 30},
-			{WorkerID: "worker-1", Timestamp: base.Add(time.Second), MemoryUtilization: 50, ComputeUtilization: 40},
-			{WorkerID: "worker-1", Timestamp: base.Add(2 * time.Second), MemoryUtilization: 60, ComputeUtilization: 50},
+			{
+				Timestamp:          baseTime,
+				WorkerID:           "worker-1",
+				MemoryUtilization:  40,
+				ComputeUtilization: 30,
+			},
+			{
+				Timestamp:          baseTime.Add(1 * time.Second),
+				WorkerID:           "worker-1",
+				MemoryUtilization:  50,
+				ComputeUtilization: 40,
+			},
+			{
+				Timestamp:          baseTime.Add(2 * time.Second),
+				WorkerID:           "worker-1",
+				MemoryUtilization:  60,
+				ComputeUtilization: 50,
+			},
 		},
 	}
 
 	results := NewResultStore()
-	service := NewService(store, NewTrendPredictor(), results, time.Second)
 
-	if err := service.predict(context.Background()); err != nil {
-		t.Fatalf("first predict failed: %v", err)
+	service := NewService(
+		store,
+		NewTrendPredictor(),
+		results,
+		1*time.Second,
+		1*time.Second,
+	)
+
+	err := service.predict(context.Background())
+	if err != nil {
+		t.Fatalf(
+			"first prediction failed: %v",
+			err,
+		)
 	}
 
 	if service.processedRecords != 3 {
-		t.Fatalf("expected 3 processed records, got %d", service.processedRecords)
+		t.Fatalf(
+			"expected 3 processed records, got %d",
+			service.processedRecords,
+		)
 	}
 
-	result, ok := results.Get("worker-1")
-	if !ok {
-		t.Fatal("expected prediction result for worker-1")
+	recent := service.history.Recent(
+		"worker-1",
+		16,
+	)
+
+	if len(recent) != 3 {
+		t.Fatalf(
+			"expected 3 history records, got %d",
+			len(recent),
+		)
 	}
 
-	if result.Prediction.WorkerID != "worker-1" {
-		t.Fatalf("unexpected prediction worker %q", result.Prediction.WorkerID)
+	result, exists := results.Get("worker-1")
+	if !exists {
+		t.Fatal(
+			"expected forecast result for worker-1",
+		)
 	}
 
-	before := service.history.Recent("worker-1", 16)
-	if len(before) != 3 {
-		t.Fatalf("expected 3 history records, got %d", len(before))
+	if result.Forecast.WorkerID != "worker-1" {
+		t.Fatalf(
+			"expected worker-1, got %q",
+			result.Forecast.WorkerID,
+		)
 	}
 
-	store.records = append(store.records, telemetry.Record{
-		WorkerID:           "worker-1",
-		Timestamp:          base.Add(3 * time.Second),
-		MemoryUtilization:  70,
-		ComputeUtilization: 60,
-	})
+	if result.Forecast.Horizon != 1*time.Second {
+		t.Fatalf(
+			"expected 1s horizon, got %s",
+			result.Forecast.Horizon,
+		)
+	}
 
-	if err := service.predict(context.Background()); err != nil {
-		t.Fatalf("second predict failed: %v", err)
+	if result.Forecast.PredictedMemoryUtilization != 70 {
+		t.Fatalf(
+			"expected predicted memory utilization 70, got %.2f",
+			result.Forecast.PredictedMemoryUtilization,
+		)
+	}
+
+	if result.Forecast.PredictedComputeUtilization != 60 {
+		t.Fatalf(
+			"expected predicted compute utilization 60, got %.2f",
+			result.Forecast.PredictedComputeUtilization,
+		)
+	}
+
+	store.records = append(
+		store.records,
+		telemetry.Record{
+			Timestamp:          baseTime.Add(3 * time.Second),
+			WorkerID:           "worker-1",
+			MemoryUtilization:  70,
+			ComputeUtilization: 60,
+		},
+	)
+
+	err = service.predict(context.Background())
+	if err != nil {
+		t.Fatalf(
+			"second prediction failed: %v",
+			err,
+		)
 	}
 
 	if service.processedRecords != 4 {
-		t.Fatalf("expected 4 processed records, got %d", service.processedRecords)
+		t.Fatalf(
+			"expected 4 processed records, got %d",
+			service.processedRecords,
+		)
 	}
 
-	after := service.history.Recent("worker-1", 16)
-	if len(after) != 4 {
-		t.Fatalf("expected 4 history records, got %d", len(after))
+	recent = service.history.Recent(
+		"worker-1",
+		16,
+	)
+
+	if len(recent) != 4 {
+		t.Fatalf(
+			"expected 4 history records, got %d",
+			len(recent),
+		)
 	}
 
-	if !after[len(after)-1].Timestamp.Equal(base.Add(3 * time.Second)) {
-		t.Fatal("expected newest telemetry record to be retained")
+	result, exists = results.Get("worker-1")
+	if !exists {
+		t.Fatal(
+			"expected updated forecast result for worker-1",
+		)
+	}
+
+	if result.Forecast.PredictedMemoryUtilization != 80 {
+		t.Fatalf(
+			"expected predicted memory utilization 80, got %.2f",
+			result.Forecast.PredictedMemoryUtilization,
+		)
+	}
+
+	if result.Forecast.PredictedComputeUtilization != 70 {
+		t.Fatalf(
+			"expected predicted compute utilization 70, got %.2f",
+			result.Forecast.PredictedComputeUtilization,
+		)
+	}
+
+	if result.Forecast.Uncertainty.SampleCount != 1 {
+		t.Fatalf(
+			"expected 1 uncertainty sample, got %d",
+			result.Forecast.Uncertainty.SampleCount,
+		)
 	}
 }

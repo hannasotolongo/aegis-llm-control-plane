@@ -35,33 +35,34 @@ func TestPredictiveSelectionAvoidsForecastContention(t *testing.T) {
 	results := predictor.NewResultStore()
 
 	results.Set(predictor.Result{
-		Prediction: predictor.Prediction{
+		Forecast: predictor.Forecast{
 			WorkerID:                    "worker-1",
+			Horizon:                     time.Second,
 			PredictedMemoryUtilization:  95,
 			PredictedComputeUtilization: 95,
 			PredictedContention:         true,
-			Confidence:                  0.95,
-		},
-		Decision: predictor.Decision{
-			Mode:                predictor.DecisionPredictive,
-			TrustPrediction:     true,
-			PredictedContention: true,
-			Confidence:          0.95,
 		},
 		GeneratedAt: time.Now(),
 	})
 
-	selected, err := SelectWorkerPredictive(workload, workers, results)
+	selected, err := SelectWorkerPredictive(
+		workload,
+		workers,
+		results,
+	)
 	if err != nil {
 		t.Fatalf("select worker: %v", err)
 	}
 
 	if selected.ID != "worker-2" {
-		t.Fatalf("expected worker-2, got %s", selected.ID)
+		t.Fatalf(
+			"expected worker-2, got %s",
+			selected.ID,
+		)
 	}
 }
 
-func TestPredictiveSelectionFallsBackWhenPredictionUntrusted(t *testing.T) {
+func TestPredictiveSelectionUsesFreshForecast(t *testing.T) {
 	workers := []cluster.Worker{
 		{
 			ID:                 "worker-1",
@@ -88,31 +89,36 @@ func TestPredictiveSelectionFallsBackWhenPredictionUntrusted(t *testing.T) {
 	results := predictor.NewResultStore()
 
 	results.Set(predictor.Result{
-		Prediction: predictor.Prediction{
+		Forecast: predictor.Forecast{
 			WorkerID:                    "worker-1",
+			Horizon:                     time.Second,
 			PredictedMemoryUtilization:  99,
 			PredictedComputeUtilization: 99,
 			PredictedContention:         true,
-			Confidence:                  0.20,
 		},
-		Decision: predictor.Decision{
-			Mode:            predictor.DecisionDeterministic,
-			TrustPrediction: false,
-			Confidence:      0.20,
-		},
+		GeneratedAt: time.Now(),
 	})
 
-	selected, err := SelectWorkerPredictive(workload, workers, results)
+	selected, err := SelectWorkerPredictive(
+		workload,
+		workers,
+		results,
+	)
 	if err != nil {
 		t.Fatalf("select worker: %v", err)
 	}
 
-	if selected.ID != "worker-1" {
-		t.Fatalf("expected deterministic fallback to worker-1, got %s", selected.ID)
+	if selected.ID != "worker-2" {
+		t.Fatalf(
+			"expected fresh forecast to steer placement to worker-2, got %s",
+			selected.ID,
+		)
 	}
 }
 
-func TestPredictiveSelectionWithoutPredictionMatchesBaseline(t *testing.T) {
+func TestPredictiveSelectionWithoutForecastMatchesBaseline(
+	t *testing.T,
+) {
 	workers := []cluster.Worker{
 		{
 			ID:                 "worker-1",
@@ -136,22 +142,39 @@ func TestPredictiveSelectionWithoutPredictionMatchesBaseline(t *testing.T) {
 		RequiredMemoryMB: 10000,
 	}
 
-	baseline, err := SelectWorker(workload, workers)
+	baseline, err := SelectWorker(
+		workload,
+		workers,
+	)
 	if err != nil {
-		t.Fatalf("baseline selection: %v", err)
+		t.Fatalf(
+			"baseline selection: %v",
+			err,
+		)
 	}
 
-	predictive, err := SelectWorkerPredictive(workload, workers, nil)
+	predictive, err := SelectWorkerPredictive(
+		workload,
+		workers,
+		nil,
+	)
 	if err != nil {
-		t.Fatalf("predictive selection: %v", err)
+		t.Fatalf(
+			"predictive selection: %v",
+			err,
+		)
 	}
 
 	if predictive.ID != baseline.ID {
-		t.Fatalf("expected baseline worker %s, got %s", baseline.ID, predictive.ID)
+		t.Fatalf(
+			"expected baseline worker %s, got %s",
+			baseline.ID,
+			predictive.ID,
+		)
 	}
 }
 
-func TestPredictiveSelectionRejectsStalePrediction(t *testing.T) {
+func TestPredictiveSelectionRejectsStaleForecast(t *testing.T) {
 	workers := []cluster.Worker{
 		{
 			ID:                 "worker-1",
@@ -178,27 +201,31 @@ func TestPredictiveSelectionRejectsStalePrediction(t *testing.T) {
 	results := predictor.NewResultStore()
 
 	results.Set(predictor.Result{
-		Prediction: predictor.Prediction{
+		Forecast: predictor.Forecast{
 			WorkerID:                    "worker-1",
+			Horizon:                     time.Second,
 			PredictedMemoryUtilization:  99,
 			PredictedComputeUtilization: 99,
 			PredictedContention:         true,
-			Confidence:                  0.90,
 		},
-		Decision: predictor.Decision{
-			Mode:            predictor.DecisionPredictive,
-			TrustPrediction: true,
-			Confidence:      0.90,
-		},
-		GeneratedAt: time.Now().Add(-30 * time.Second),
+		GeneratedAt: time.Now().Add(
+			-30 * time.Second,
+		),
 	})
 
-	selected, err := SelectWorkerPredictive(workload, workers, results)
+	selected, err := SelectWorkerPredictive(
+		workload,
+		workers,
+		results,
+	)
 	if err != nil {
 		t.Fatalf("select worker: %v", err)
 	}
 
 	if selected.ID != "worker-1" {
-		t.Fatalf("expected stale prediction fallback to worker-1, got %s", selected.ID)
+		t.Fatalf(
+			"expected stale forecast fallback to worker-1, got %s",
+			selected.ID,
+		)
 	}
 }

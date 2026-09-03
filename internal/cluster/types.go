@@ -43,22 +43,32 @@ type Worker struct {
 	ActiveWorkloadCount int
 	State               WorkerState
 	LastHeartbeat       time.Time
-	TopologyDomain      string
-	CachedModels        []string
+
+	Topology       GPUTopology
+	TopologyDomain string
+
+	CachedModels []string
 }
 
 type Workload struct {
-	ID                     string
-	ModelID                string
-	ArrivalTime            time.Time
-	Priority               Priority
-	RequiredMemoryMB       uint64
-	EstimatedCompute       float64
-	ExpectedDuration       time.Duration
-	LatencySLO             time.Duration
-	Checkpointable         bool
+	ID               string
+	ModelID          string
+	ArrivalTime      time.Time
+	Priority         Priority
+	PromptTokens     int
+	MaxOutputTokens  int
+	BatchSize        int
+	RequiredMemoryMB uint64
+	KVCacheMemoryMB  uint64
+	EstimatedCompute float64
+	ExpectedDuration time.Duration
+	LatencySLO       time.Duration
+	Checkpointable   bool
+
+	TopologyRequirement    TopologyRequirement
 	RequiredTopologyDomain string
-	KVCacheKey             string
-	State                  WorkloadState
-	AssignedWorkerID       string
+
+	KVCacheKey       string
+	State            WorkloadState
+	AssignedWorkerID string
 }

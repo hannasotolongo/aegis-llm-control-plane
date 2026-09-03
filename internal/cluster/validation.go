@@ -8,11 +8,17 @@ func ValidateWorker(worker Worker) error {
 	}
 
 	if worker.NodeID == "" {
-		return fmt.Errorf("worker %q must have a node ID", worker.ID)
+		return fmt.Errorf(
+			"worker %q must have a node ID",
+			worker.ID,
+		)
 	}
 
 	if worker.TotalMemoryMB == 0 {
-		return fmt.Errorf("worker %q must have GPU memory", worker.ID)
+		return fmt.Errorf(
+			"worker %q must have GPU memory",
+			worker.ID,
+		)
 	}
 
 	if worker.AvailableMemoryMB > worker.TotalMemoryMB {
@@ -24,14 +30,16 @@ func ValidateWorker(worker Worker) error {
 		)
 	}
 
-	if worker.ComputeUtilization < 0 || worker.ComputeUtilization > 100 {
+	if worker.ComputeUtilization < 0 ||
+		worker.ComputeUtilization > 100 {
 		return fmt.Errorf(
 			"worker %q compute utilization must be between 0 and 100",
 			worker.ID,
 		)
 	}
 
-	if worker.MemoryUtilization < 0 || worker.MemoryUtilization > 100 {
+	if worker.MemoryUtilization < 0 ||
+		worker.MemoryUtilization > 100 {
 		return fmt.Errorf(
 			"worker %q memory utilization must be between 0 and 100",
 			worker.ID,
@@ -43,7 +51,9 @@ func ValidateWorker(worker Worker) error {
 
 func ValidateWorkload(workload Workload) error {
 	if workload.ID == "" {
-		return fmt.Errorf("workload ID cannot be empty")
+		return fmt.Errorf(
+			"workload ID cannot be empty",
+		)
 	}
 
 	if workload.ModelID == "" {
@@ -57,6 +67,37 @@ func ValidateWorkload(workload Workload) error {
 		return fmt.Errorf(
 			"workload %q must require GPU memory",
 			workload.ID,
+		)
+	}
+
+	if workload.PromptTokens < 0 {
+		return fmt.Errorf(
+			"workload %q prompt tokens cannot be negative",
+			workload.ID,
+		)
+	}
+
+	if workload.MaxOutputTokens < 0 {
+		return fmt.Errorf(
+			"workload %q max output tokens cannot be negative",
+			workload.ID,
+		)
+	}
+
+	if workload.BatchSize < 0 {
+		return fmt.Errorf(
+			"workload %q batch size cannot be negative",
+			workload.ID,
+		)
+	}
+
+	if workload.KVCacheMemoryMB >
+		workload.RequiredMemoryMB {
+		return fmt.Errorf(
+			"workload %q KV cache memory (%d MB) exceeds required memory (%d MB)",
+			workload.ID,
+			workload.KVCacheMemoryMB,
+			workload.RequiredMemoryMB,
 		)
 	}
 
@@ -82,7 +123,9 @@ func ValidateWorkload(workload Workload) error {
 	}
 
 	switch workload.Priority {
-	case PriorityCritical, PriorityStandard, PriorityBatch:
+	case PriorityCritical,
+		PriorityStandard,
+		PriorityBatch:
 	default:
 		return fmt.Errorf(
 			"workload %q has invalid priority %q",

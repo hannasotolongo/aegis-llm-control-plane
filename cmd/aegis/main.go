@@ -22,16 +22,32 @@ func main() {
 	store := cluster.NewInMemoryStateStore()
 
 	sim := simulator.New(store)
-	if err := sim.SeedWorkers(context.Background(), 4); err != nil {
-		log.Fatalf("seed simulator workers: %v", err)
+
+	if err := sim.SeedWorkers(
+		context.Background(),
+		4,
+	); err != nil {
+		log.Fatalf(
+			"seed simulator workers: %v",
+			err,
+		)
 	}
 
-	if err := sim.SeedWorkloads(context.Background()); err != nil {
-		log.Fatalf("seed simulator workloads: %v", err)
+	if err := sim.SeedWorkloads(
+		context.Background(),
+	); err != nil {
+		log.Fatalf(
+			"seed simulator workloads: %v",
+			err,
+		)
 	}
 
 	telemetryStore := telemetry.NewInMemoryStore()
-	collector := telemetry.NewCollector(telemetryStore)
+
+	collector := telemetry.NewCollector(
+		telemetryStore,
+	)
+
 	telemetryService := telemetry.NewService(
 		store,
 		collector,
@@ -39,12 +55,15 @@ func main() {
 	)
 
 	trendPredictor := predictor.NewTrendPredictor()
+
 	predictionResults := predictor.NewResultStore()
+
 	predictionService := predictor.NewService(
 		telemetryStore,
 		trendPredictor,
 		predictionResults,
 		5*time.Second,
+		30*time.Second,
 	)
 
 	predictiveScheduler := scheduler.NewPredictiveService(
@@ -60,30 +79,56 @@ func main() {
 	defer stop()
 
 	go func() {
-		err := sim.Run(ctx, 2*time.Second)
-		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("simulator stopped: %v", err)
+		err := sim.Run(
+			ctx,
+			2*time.Second,
+		)
+
+		if err != nil &&
+			!errors.Is(err, context.Canceled) {
+			log.Printf(
+				"simulator stopped: %v",
+				err,
+			)
 		}
 	}()
 
 	go func() {
 		err := predictionService.Run(ctx)
-		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("prediction service stopped: %v", err)
+
+		if err != nil &&
+			!errors.Is(err, context.Canceled) {
+			log.Printf(
+				"prediction service stopped: %v",
+				err,
+			)
 		}
 	}()
 
 	go func() {
 		err := telemetryService.Run(ctx)
-		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("telemetry service stopped: %v", err)
+
+		if err != nil &&
+			!errors.Is(err, context.Canceled) {
+			log.Printf(
+				"telemetry service stopped: %v",
+				err,
+			)
 		}
 	}()
 
 	go func() {
-		err := predictiveScheduler.Run(ctx, 2*time.Second)
-		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("scheduler stopped: %v", err)
+		err := predictiveScheduler.Run(
+			ctx,
+			2*time.Second,
+		)
+
+		if err != nil &&
+			!errors.Is(err, context.Canceled) {
+			log.Printf(
+				"scheduler stopped: %v",
+				err,
+			)
 		}
 	}()
 
@@ -95,11 +140,23 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("Aegis control plane listening on %s", server.Addr)
+		log.Printf(
+			"Aegis control plane listening on %s",
+			server.Addr,
+		)
 
 		err := server.ListenAndServe()
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("HTTP server error: %v", err)
+
+		if err != nil &&
+			!errors.Is(
+				err,
+				http.ErrServerClosed,
+			) {
+			log.Printf(
+				"HTTP server error: %v",
+				err,
+			)
+
 			stop()
 		}
 	}()
@@ -114,18 +171,31 @@ func main() {
 	)
 	defer cancel()
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("HTTP shutdown error: %v", err)
+	if err := server.Shutdown(
+		shutdownCtx,
+	); err != nil {
+		log.Printf(
+			"HTTP shutdown error: %v",
+			err,
+		)
 	}
 
-	records, err := telemetryStore.List(context.Background())
+	records, err := telemetryStore.List(
+		context.Background(),
+	)
 	if err != nil {
-		log.Printf("read telemetry: %v", err)
+		log.Printf(
+			"read telemetry: %v",
+			err,
+		)
 		return
 	}
 
 	if err := exportTelemetry(records); err != nil {
-		log.Printf("export telemetry: %v", err)
+		log.Printf(
+			"export telemetry: %v",
+			err,
+		)
 		return
 	}
 
@@ -135,12 +205,20 @@ func main() {
 	)
 }
 
-func exportTelemetry(records []telemetry.Record) error {
-	file, err := os.Create("aegis-telemetry.csv")
+func exportTelemetry(
+	records []telemetry.Record,
+) error {
+	file, err := os.Create(
+		"aegis-telemetry.csv",
+	)
 	if err != nil {
 		return err
 	}
+
 	defer file.Close()
 
-	return telemetry.WriteCSV(file, records)
+	return telemetry.WriteCSV(
+		file,
+		records,
+	)
 }

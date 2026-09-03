@@ -34,8 +34,7 @@ func SelectWorker(
 			continue
 		}
 
-		if workload.RequiredTopologyDomain != "" &&
-			worker.TopologyDomain != workload.RequiredTopologyDomain {
+		if !matchesTopology(workload, worker) {
 			continue
 		}
 

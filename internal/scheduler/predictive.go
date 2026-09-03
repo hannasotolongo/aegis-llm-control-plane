@@ -33,6 +33,7 @@ func SelectWorkerPredictive(
 ) (cluster.Worker, error) {
 	var selected cluster.Worker
 	var selectedScore float64
+
 	found := false
 
 	for _, worker := range workers {
@@ -44,8 +45,7 @@ func SelectWorkerPredictive(
 			continue
 		}
 
-		if workload.RequiredTopologyDomain != "" &&
-			worker.TopologyDomain != workload.RequiredTopologyDomain {
+		if !matchesTopology(workload, worker) {
 			continue
 		}
 
@@ -86,20 +86,27 @@ func ExplainPredictiveWorkerScore(
 	}
 
 	result, ok := predictions.Get(worker.ID)
-	if !ok ||
-		!result.Decision.TrustPrediction ||
-		time.Since(result.GeneratedAt) > 15*time.Second {
+	if !ok {
+		return breakdown
+	}
+
+	if time.Since(result.GeneratedAt) > 15*time.Second {
 		return breakdown
 	}
 
 	breakdown.UsedPrediction = true
-	breakdown.PredictedMemoryPenalty =
-		result.Prediction.PredictedMemoryUtilization * predictedMemoryPenaltyWeight
-	breakdown.PredictedComputePenalty =
-		result.Prediction.PredictedComputeUtilization * predictedComputePenaltyWeight
 
-	if result.Prediction.PredictedContention {
-		breakdown.PredictedContentionPenalty = predictedContentionPenalty
+	breakdown.PredictedMemoryPenalty =
+		result.Forecast.PredictedMemoryUtilization *
+			predictedMemoryPenaltyWeight
+
+	breakdown.PredictedComputePenalty =
+		result.Forecast.PredictedComputeUtilization *
+			predictedComputePenaltyWeight
+
+	if result.Forecast.PredictedContention {
+		breakdown.PredictedContentionPenalty =
+			predictedContentionPenalty
 	}
 
 	breakdown.Total =

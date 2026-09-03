@@ -6,8 +6,7 @@ import (
 )
 
 type Result struct {
-	Prediction  Prediction
-	Decision    Decision
+	Forecast    Forecast
 	GeneratedAt time.Time
 }
 
@@ -23,14 +22,14 @@ func NewResultStore() *ResultStore {
 }
 
 func (s *ResultStore) Set(result Result) {
-	if result.Prediction.WorkerID == "" {
+	if result.Forecast.WorkerID == "" {
 		return
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.results[result.Prediction.WorkerID] = result
+	s.results[result.Forecast.WorkerID] = result
 }
 
 func (s *ResultStore) Get(workerID string) (Result, bool) {
@@ -46,6 +45,7 @@ func (s *ResultStore) Snapshot() map[string]Result {
 	defer s.mu.RUnlock()
 
 	results := make(map[string]Result, len(s.results))
+
 	for workerID, result := range s.results {
 		results[workerID] = result
 	}

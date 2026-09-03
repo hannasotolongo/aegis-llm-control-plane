@@ -69,28 +69,29 @@ func TestPredictiveServiceChangesPlacementFromBaseline(t *testing.T) {
 	}
 
 	if baseline.ID != "worker-1" {
-		t.Fatalf("expected baseline worker-1, got %s", baseline.ID)
+		t.Fatalf(
+			"expected baseline worker-1, got %s",
+			baseline.ID,
+		)
 	}
 
 	results := predictor.NewResultStore()
+
 	results.Set(predictor.Result{
-		Prediction: predictor.Prediction{
+		Forecast: predictor.Forecast{
 			WorkerID:                    "worker-1",
+			Horizon:                     time.Second,
 			PredictedMemoryUtilization:  97,
 			PredictedComputeUtilization: 95,
 			PredictedContention:         true,
-			Confidence:                  0.95,
-		},
-		Decision: predictor.Decision{
-			Mode:                predictor.DecisionPredictive,
-			TrustPrediction:     true,
-			PredictedContention: true,
-			Confidence:          0.95,
 		},
 		GeneratedAt: time.Now(),
 	})
 
-	service := NewPredictiveService(store, results)
+	service := NewPredictiveService(
+		store,
+		results,
+	)
 
 	placed, err := service.SchedulePending(ctx)
 	if err != nil {
@@ -98,7 +99,10 @@ func TestPredictiveServiceChangesPlacementFromBaseline(t *testing.T) {
 	}
 
 	if len(placed) != 1 {
-		t.Fatalf("expected one placement, got %d", len(placed))
+		t.Fatalf(
+			"expected one placement, got %d",
+			len(placed),
+		)
 	}
 
 	if placed[0].AssignedWorkerID != "worker-2" {
@@ -108,7 +112,10 @@ func TestPredictiveServiceChangesPlacementFromBaseline(t *testing.T) {
 		)
 	}
 
-	worker2, err := store.GetWorker(ctx, "worker-2")
+	worker2, err := store.GetWorker(
+		ctx,
+		"worker-2",
+	)
 	if err != nil {
 		t.Fatalf("get worker-2: %v", err)
 	}

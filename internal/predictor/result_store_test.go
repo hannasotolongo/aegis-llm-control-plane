@@ -9,18 +9,12 @@ func TestResultStoreSetAndGet(t *testing.T) {
 	store := NewResultStore()
 
 	result := Result{
-		Prediction: Prediction{
+		Forecast: Forecast{
 			WorkerID:                    "worker-1",
+			Horizon:                     time.Second,
 			PredictedMemoryUtilization:  91,
 			PredictedComputeUtilization: 88,
 			PredictedContention:         true,
-			Confidence:                  0.95,
-		},
-		Decision: Decision{
-			Mode:                DecisionPredictive,
-			TrustPrediction:     true,
-			PredictedContention: true,
-			Confidence:          0.95,
 		},
 		GeneratedAt: time.Unix(100, 0),
 	}
@@ -32,12 +26,22 @@ func TestResultStoreSetAndGet(t *testing.T) {
 		t.Fatal("expected stored result")
 	}
 
-	if got.Prediction.WorkerID != "worker-1" {
-		t.Fatalf("unexpected worker ID %q", got.Prediction.WorkerID)
+	if got.Forecast.WorkerID != "worker-1" {
+		t.Fatalf(
+			"unexpected worker ID %q",
+			got.Forecast.WorkerID,
+		)
 	}
 
-	if !got.Decision.TrustPrediction {
-		t.Fatal("expected trusted prediction")
+	if got.Forecast.PredictedMemoryUtilization != 91 {
+		t.Fatalf(
+			"expected memory forecast 91, got %.2f",
+			got.Forecast.PredictedMemoryUtilization,
+		)
+	}
+
+	if !got.Forecast.PredictedContention {
+		t.Fatal("expected predicted contention")
 	}
 }
 
@@ -45,11 +49,17 @@ func TestResultStoreReplacesWorkerResult(t *testing.T) {
 	store := NewResultStore()
 
 	store.Set(Result{
-		Prediction: Prediction{WorkerID: "worker-1", Confidence: 0.50},
+		Forecast: Forecast{
+			WorkerID:                   "worker-1",
+			PredictedMemoryUtilization: 50,
+		},
 	})
 
 	store.Set(Result{
-		Prediction: Prediction{WorkerID: "worker-1", Confidence: 0.90},
+		Forecast: Forecast{
+			WorkerID:                   "worker-1",
+			PredictedMemoryUtilization: 90,
+		},
 	})
 
 	result, ok := store.Get("worker-1")
@@ -57,18 +67,26 @@ func TestResultStoreReplacesWorkerResult(t *testing.T) {
 		t.Fatal("expected stored result")
 	}
 
-	if result.Prediction.Confidence != 0.90 {
-		t.Fatalf("expected latest confidence 0.90, got %.2f", result.Prediction.Confidence)
+	if result.Forecast.PredictedMemoryUtilization != 90 {
+		t.Fatalf(
+			"expected latest memory forecast 90, got %.2f",
+			result.Forecast.PredictedMemoryUtilization,
+		)
 	}
 }
 
 func TestResultStoreSnapshotIsIndependent(t *testing.T) {
 	store := NewResultStore()
+
 	store.Set(Result{
-		Prediction: Prediction{WorkerID: "worker-1", Confidence: 0.80},
+		Forecast: Forecast{
+			WorkerID:                   "worker-1",
+			PredictedMemoryUtilization: 80,
+		},
 	})
 
 	snapshot := store.Snapshot()
+
 	delete(snapshot, "worker-1")
 
 	if _, ok := store.Get("worker-1"); !ok {
@@ -78,6 +96,7 @@ func TestResultStoreSnapshotIsIndependent(t *testing.T) {
 
 func TestResultStoreIgnoresEmptyWorkerID(t *testing.T) {
 	store := NewResultStore()
+
 	store.Set(Result{})
 
 	if len(store.Snapshot()) != 0 {
