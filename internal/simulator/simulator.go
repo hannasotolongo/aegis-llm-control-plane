@@ -14,7 +14,10 @@ type Simulator struct {
 }
 
 func New(store cluster.StateStore) *Simulator {
-	return NewWithScenario(store, ScenarioRisingPressure)
+	return NewWithScenario(
+		store,
+		ScenarioRisingPressure,
+	)
 }
 
 func NewWithScenario(
@@ -177,6 +180,14 @@ func (s *Simulator) Run(
 	defer ticker.Stop()
 
 	lifecycle := NewWorkloadLifecycle()
+
+	if err := s.InitializeLifecycle(
+		ctx,
+		lifecycle,
+		time.Now(),
+	); err != nil {
+		return err
+	}
 
 	step := 0
 

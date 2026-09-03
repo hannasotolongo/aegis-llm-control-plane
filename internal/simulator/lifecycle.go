@@ -77,6 +77,40 @@ func (l *WorkloadLifecycle) activeWorkload(
 	return workload, ok
 }
 
+func (s *Simulator) InitializeLifecycle(
+	ctx context.Context,
+	lifecycle *WorkloadLifecycle,
+	now time.Time,
+) error {
+	workloads, err := s.store.ListWorkloads(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, workload := range workloads {
+		if workload.State != cluster.WorkloadRunning {
+			continue
+		}
+
+		if workload.AssignedWorkerID == "" {
+			continue
+		}
+
+		start := workload.ArrivalTime
+
+		if start.IsZero() {
+			start = now
+		}
+
+		lifecycle.Track(
+			workload,
+			start,
+		)
+	}
+
+	return nil
+}
+
 func (s *Simulator) AdvanceWorkloads(
 	ctx context.Context,
 	lifecycle *WorkloadLifecycle,
