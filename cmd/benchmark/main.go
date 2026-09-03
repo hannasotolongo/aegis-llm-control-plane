@@ -85,7 +85,7 @@ func runScenario(s scenario) {
 	fmt.Printf("SCENARIO: %s\n", s.Name)
 	fmt.Println("------------------------------")
 
-	workloads := benchmarkWorkloads(12)
+	workloads := benchmarkWorkloads(48)
 
 	baseline := runBaselineBenchmark(workloads)
 
@@ -114,8 +114,15 @@ func runBaselineBenchmark(
 	result := newBenchmarkResult("Baseline")
 
 	previousPressure := make(map[string]bool)
+	active := make([]benchmarkActiveWorkload, 0)
 
-	for _, workload := range workloads {
+	for step, workload := range workloads {
+		releaseCompletedWorkloads(
+			&workers,
+			&active,
+			step,
+		)
+
 		start := time.Now()
 
 		selected, err := scheduler.SelectWorker(
@@ -137,6 +144,13 @@ func runBaselineBenchmark(
 			&workers,
 			selected.ID,
 			workload,
+		)
+
+		trackBenchmarkWorkload(
+			&active,
+			workload,
+			selected.ID,
+			step,
 		)
 
 		recordPressure(
@@ -162,8 +176,15 @@ func runPredictiveBenchmark(
 	result := newBenchmarkResult("Predictive")
 
 	previousPressure := make(map[string]bool)
+	active := make([]benchmarkActiveWorkload, 0)
 
-	for _, workload := range workloads {
+	for step, workload := range workloads {
+		releaseCompletedWorkloads(
+			&workers,
+			&active,
+			step,
+		)
+
 		predictions :=
 			predictionFn(workers)
 
@@ -192,6 +213,13 @@ func runPredictiveBenchmark(
 			workload,
 		)
 
+		trackBenchmarkWorkload(
+			&active,
+			workload,
+			selected.ID,
+			step,
+		)
+
 		recordPressure(
 			&result,
 			workers,
@@ -216,9 +244,16 @@ func runRiskAwareBenchmark(
 	result := newBenchmarkResult("Risk-Aware")
 
 	previousPressure := make(map[string]bool)
+	active := make([]benchmarkActiveWorkload, 0)
 	evaluator := risk.NewEvaluator()
 
 	for decision, workload := range workloads {
+		releaseCompletedWorkloads(
+			&workers,
+			&active,
+			decision,
+		)
+
 		predictions :=
 			predictionFn(workers)
 
@@ -271,6 +306,13 @@ func runRiskAwareBenchmark(
 			&workers,
 			selected.ID,
 			workload,
+		)
+
+		trackBenchmarkWorkload(
+			&active,
+			workload,
+			selected.ID,
+			decision,
 		)
 
 		recordPressure(
@@ -326,17 +368,12 @@ func printRiskDiagnostic(
 			continue
 		}
 
-		combined :=
-			breakdown.Base.Total -
-				breakdown.PlacementRisk.Score
-
 		fmt.Printf(
-			"  %s: baseline=%.2f risk=%s %.2f combined=%.2f memory=%.1f%% compute=%.1f%%\n",
+			"  %s: baseline=%.2f risk=%s %.2f memory=%.1f%% compute=%.1f%%\n",
 			worker.ID,
 			breakdown.Base.Total,
 			breakdown.PlacementRisk.Level,
 			breakdown.PlacementRisk.Score,
-			combined,
 			worker.MemoryUtilization,
 			worker.ComputeUtilization,
 		)
