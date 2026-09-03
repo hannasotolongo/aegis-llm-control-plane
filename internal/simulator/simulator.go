@@ -27,10 +27,20 @@ func NewWithScenario(
 	}
 }
 
-func (s *Simulator) SeedWorkers(ctx context.Context, count int) error {
+func (s *Simulator) SeedWorkers(
+	ctx context.Context,
+	count int,
+) error {
 	for i := 0; i < count; i++ {
-		nodeID := fmt.Sprintf("node-%d", i+1)
-		rackID := fmt.Sprintf("rack-%d", (i%2)+1)
+		nodeID := fmt.Sprintf(
+			"node-%d",
+			i+1,
+		)
+
+		rackID := fmt.Sprintf(
+			"rack-%d",
+			(i%2)+1,
+		)
 
 		worker := cluster.Worker{
 			ID:                  fmt.Sprintf("worker-%d", i+1),
@@ -45,17 +55,23 @@ func (s *Simulator) SeedWorkers(ctx context.Context, count int) error {
 			LastHeartbeat:       time.Now(),
 
 			Topology: cluster.GPUTopology{
-				NodeID:       nodeID,
-				RackID:       rackID,
-				GPUIndex:     i,
-				NVLinkDomain: fmt.Sprintf("nvlink-%d", (i/2)+1),
+				NodeID:   nodeID,
+				RackID:   rackID,
+				GPUIndex: i,
+				NVLinkDomain: fmt.Sprintf(
+					"nvlink-%d",
+					(i/2)+1,
+				),
 				Interconnect: cluster.InterconnectNVLink,
 			},
 
 			TopologyDomain: rackID,
 		}
 
-		if err := s.store.RegisterWorker(ctx, worker); err != nil {
+		if err := s.store.RegisterWorker(
+			ctx,
+			worker,
+		); err != nil {
 			return err
 		}
 	}
@@ -63,7 +79,9 @@ func (s *Simulator) SeedWorkers(ctx context.Context, count int) error {
 	return nil
 }
 
-func (s *Simulator) SeedWorkloads(ctx context.Context) error {
+func (s *Simulator) SeedWorkloads(
+	ctx context.Context,
+) error {
 	workloads := []cluster.Workload{
 		{
 			ID:               "workload-1",
@@ -116,11 +134,17 @@ func (s *Simulator) SeedWorkloads(ctx context.Context) error {
 	}
 
 	for i, workload := range workloads {
-		if err := s.store.CreateWorkload(ctx, workload); err != nil {
+		if err := s.store.CreateWorkload(
+			ctx,
+			workload,
+		); err != nil {
 			return err
 		}
 
-		workerID := fmt.Sprintf("worker-%d", i+1)
+		workerID := fmt.Sprintf(
+			"worker-%d",
+			i+1,
+		)
 
 		placed, err := s.store.CommitPlacement(
 			ctx,
@@ -131,7 +155,8 @@ func (s *Simulator) SeedWorkloads(ctx context.Context) error {
 			return err
 		}
 
-		placed.State = cluster.WorkloadRunning
+		placed.State =
+			cluster.WorkloadRunning
 
 		if err := s.store.UpdateWorkload(
 			ctx,
@@ -151,6 +176,8 @@ func (s *Simulator) Run(
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	lifecycle := NewWorkloadLifecycle()
+
 	step := 0
 
 	for {
@@ -158,10 +185,18 @@ func (s *Simulator) Run(
 		case <-ctx.Done():
 			return ctx.Err()
 
-		case <-ticker.C:
+		case now := <-ticker.C:
 			if err := s.updateWorkers(
 				ctx,
 				step,
+			); err != nil {
+				return err
+			}
+
+			if err := s.AdvanceWorkloads(
+				ctx,
+				lifecycle,
+				now,
 			); err != nil {
 				return err
 			}
@@ -189,9 +224,14 @@ func (s *Simulator) updateWorkers(
 			return err
 		}
 
-		worker.ComputeUtilization = utilization.Compute
-		worker.MemoryUtilization = utilization.Memory
-		worker.LastHeartbeat = time.Now()
+		worker.ComputeUtilization =
+			utilization.Compute
+
+		worker.MemoryUtilization =
+			utilization.Memory
+
+		worker.LastHeartbeat =
+			time.Now()
 
 		if err := s.store.UpdateWorker(
 			ctx,
