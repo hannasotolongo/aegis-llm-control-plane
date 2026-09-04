@@ -117,6 +117,27 @@ When fresh risk information is available, the scheduler prioritizes workers with
 
 Risk evaluation remains part of worker selection rather than a replacement for placement safety. Worker health, available memory, and topology requirements must still be satisfied before a workload can be committed.
 
+## Placement Risk Model
+
+Aegis defines placement risk as the maximum projected pressure across GPU memory and compute after accounting for both forecast uncertainty and the workload being considered for placement.
+
+For a workload \(w\), worker \(g\), and forecast horizon \(h\), the risk score is represented as:
+
+$$
+R(w,g,t)=
+\max
+\left(
+\hat{M}_{g,t+h}+E^M_g+D^M_w,\;
+\hat{C}_{g,t+h}+E^C_g
+\right)
+$$
+
+Here, \(\hat{M}_{g,t+h}\) and \(\hat{C}_{g,t+h}\) represent predicted memory and compute utilization for the worker at the forecast horizon. \(E^M_g\) and \(E^C_g\) represent recent mean absolute forecast error for memory and compute, while \(D^M_w\) represents the additional memory pressure introduced by placing the workload on that worker.
+
+The model is intentionally conservative. Forecast error is added to predicted utilization so workers with less reliable recent predictions are treated as riskier than workers with similar forecasts but lower observed error. Memory demand from the prospective workload is also incorporated before the placement is committed, allowing the scheduler to estimate the resource pressure that would exist after placement rather than evaluating the worker in isolation.
+
+The resulting score is mapped into low, moderate, high, and critical risk levels. These levels are used to compare eligible workers during risk-aware scheduling. The score is a deterministic placement-risk heuristic rather than a calibrated probability of contention, which keeps the model consistent with the uncertainty information currently produced by Aegis.
+
 ## Worker Health & Failure Recovery
 
 Aegis monitors worker health so scheduling decisions reflect whether infrastructure remains available after it enters the cluster. Workers that stop reporting within the expected heartbeat window can transition to an unhealthy state and are excluded from new workload placement.
