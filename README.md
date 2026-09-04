@@ -107,7 +107,7 @@ This allows Aegis to distinguish between a worker that is lightly utilized and e
 
 Predictive scheduling remains resilient to missing information. When a usable forecast is unavailable, Aegis returns to baseline worker scoring rather than blocking placement or making assumptions about future resource conditions.
 
-## Risk-Aware Scheduling
+## Risk Aware Scheduling
 
 Forecasting future utilization is useful, but a prediction should not be treated as certain. Aegis extends predictive scheduling with a risk-aware policy that considers both expected resource pressure and the recent accuracy of those predictions.
 
@@ -137,6 +137,20 @@ Here, \(\hat{M}_{g,t+h}\) and \(\hat{C}_{g,t+h}\) represent predicted memory and
 The model is intentionally conservative. Forecast error is added to predicted utilization so workers with less reliable recent predictions are treated as riskier than workers with similar forecasts but lower observed error. Memory demand from the prospective workload is also incorporated before the placement is committed, allowing the scheduler to estimate the resource pressure that would exist after placement rather than evaluating the worker in isolation.
 
 The resulting score is mapped into low, moderate, high, and critical risk levels. These levels are used to compare eligible workers during risk-aware scheduling. The score is a deterministic placement-risk heuristic rather than a calibrated probability of contention, which keeps the model consistent with the uncertainty information currently produced by Aegis.
+
+## Scheduling Objective
+
+Aegis treats worker selection as a constrained optimization problem. A placement must first satisfy worker health, memory capacity, and topology requirements. Among workers that satisfy those constraints, the scheduler seeks a placement that reduces expected resource pressure while accounting for forecast uncertainty and the demand introduced by the workload itself.
+
+Conceptually, the risk-aware scheduling objective can be written as:
+
+$$
+g^*=\arg\min_{g\in\mathcal{E}(w,t)} R(w,g,t)
+$$
+
+where \(\mathcal{E}(w,t)\) is the set of workers eligible to execute workload \(w\) at time \(t\), and \(R(w,g,t)\) is the placement-risk function defined above.
+
+When risk values do not distinguish otherwise valid candidates, Aegis uses its baseline worker score to resolve the placement. This preserves considerations such as resource headroom, existing utilization, active workload count, and model locality while keeping hard infrastructure constraints separate from optimization.
 
 ## Worker Health & Failure Recovery
 
