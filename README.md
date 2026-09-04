@@ -87,17 +87,6 @@ cd aegis-llm-control-plane
 go test ./...
 go run ./cmd/aegis
 
-## Testing
-
-Aegis includes unit, integration, concurrency, and failure-path tests covering scheduling, forecasting, telemetry validation, topology constraints, workload lifecycle, worker failure, and resource reservation.
-
-The test suite specifically verifies stale-forecast fallback, rejection of invalid telemetry, commit-time state changes, and prevention of concurrent GPU-memory overcommit. The project is also validated with Go's race detector.
-
-```bash
-go test ./...
-go test -race ./...
-go vet ./...
-
 ## Limitations
 
 Aegis currently evaluates scheduling behavior in a simulated multi-GPU environment rather than on physical GPU infrastructure. The benchmark measures control-plane behavior under controlled workload and forecast conditions and should not be interpreted as production GPU throughput or inference performance.
