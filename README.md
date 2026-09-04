@@ -1,174 +1,178 @@
-# Aegis: Predictive GPU Workload Control Plane for LLM Inference
+# Aegis: Risk Aware GPU Workload Control Plane for LLM Inference
 
 ## Overview
-Aegis is a GPU workload control plane designed to make LLM inference infrastructure more efficient by improving how limited GPU capacity is allocated as cluster conditions change.
 
-GPU scheduling is difficult because placement decisions are made against a constantly changing system. Available capacity can disappear, resource pressure can develop after placement, and concurrent workloads can compete for the same resources. Aegis addresses these problems by coordinating scheduling and resource allocation around a consistent view of the GPU cluster. It protects capacity from conflicting claims, evaluates whether a worker is appropriate for a specific workload, and uses resource telemetry to anticipate developing memory and compute pressure before placement.
+Aegis is an experimental GPU workload control plane designed to improve how limited GPU capacity is allocated for LLM inference as cluster conditions change.
 
-Rather than asking only where a workload can run now, Aegis considers where it should run as resource conditions evolve. The goal is to prevent conflicting allocations, reduce avoidable contention, improve utilization of existing GPU capacity, and support growing inference demand without treating additional hardware as the first solution.
+A placement that looks efficient at one moment can become inefficient shortly afterward as GPU memory pressure, compute utilization, and competing workload demand evolve. Concurrent scheduling creates an additional challenge because multiple workloads can observe the same available capacity and attempt to claim resources that cannot support them together.
+
+Aegis addresses these problems across the scheduling lifecycle. It maintains concurrency safe cluster state, models LLM workload requirements, accounts for GPU topology and model locality, coordinates placement with resource reservation, monitors worker health, and collects resource telemetry over time.
+
+Recent telemetry is used to forecast short horizon GPU memory and compute utilization. Rather than treating those forecasts as certain, Aegis also considers observed forecast error when evaluating workers. This allows the scheduler to account for current resource state, predicted pressure, and uncertainty before committing a workload to a GPU.
+
+The goal is to make placement decisions that remain efficient as cluster conditions evolve, reducing avoidable resource contention while making better use of available GPU capacity.
 
 ## The Problem
 
-GPU inference capacity is not static. Every placement changes the resources available to the next workload, while workloads already running on the cluster continue to change memory and compute pressure over time. A scheduler making decisions from current capacity alone can therefore choose a worker that is technically valid at placement time but becomes a poor choice shortly afterward.
+GPU inference capacity is continuously changing. Every placement consumes resources that are no longer available to the next workload, while workloads already running on the cluster continue to change memory and compute pressure over time. A scheduler making decisions from current utilization alone can therefore select a worker that is valid at placement time but becomes heavily constrained shortly afterward.
 
-Concurrency makes this more difficult. Multiple scheduling operations can observe the same available capacity before either has completed its placement. If resource validation and reservation are not coordinated, both can select the same worker and collectively request more capacity than actually exists. The individual scheduling decisions may each appear valid while the resulting cluster state is not.
+Concurrency creates a separate correctness problem. Multiple scheduling operations can observe the same available capacity before either placement has been committed. Without coordinated validation and reservation, both workloads can select the same worker and collectively request more capacity than is actually available.
 
-LLM inference adds another layer to the placement problem because available memory alone does not determine whether two workers are equally suitable. The workload being served, existing utilization, model locality, GPU topology, latency requirements, and expected resource demand can all affect the quality of a placement.
-
-Aegis treats scheduling as a resource coordination problem rather than a simple capacity lookup. Placement decisions must remain correct under concurrency, satisfy workload and infrastructure constraints, and account for developing resource pressure before additional work is assigned.
+LLM inference makes placement more complex because available GPU memory alone does not determine whether a worker is a good target. Workload demand, existing utilization, model locality, GPU topology, latency requirements, predicted resource pressure, and the reliability of those predictions can all affect placement quality. Aegis treats these factors as part of a coordinated scheduling decision rather than relying on a single snapshot of available capacity.
 
 ## System Design
 
-Aegis separates scheduling into a set of control plane components responsible for cluster state, workload placement, telemetry, forecasting, and worker health. This separation allows each scheduling decision to combine information about what a workload requires, what resources are currently available, and how those resources are changing over time.
+Aegis separates cluster state, scheduling, telemetry, forecasting, risk evaluation, and worker health into distinct control plane components. This allows placement decisions to combine information about what a workload requires, what resources are currently available, and how those resources are expected to change.
 
-When a workload enters the system, Aegis first determines which workers are eligible to run it. Eligibility is based on hard constraints such as worker health, available GPU memory, and topology requirements. Eligible workers are then scored using current resource pressure, active workloads, available memory, and model locality.
+When a workload enters the scheduling path, Aegis first determines which workers are eligible based on hard constraints such as worker health, available GPU memory, and topology requirements. Eligible workers can then be evaluated using current utilization, workload activity, model locality, predicted resource pressure, and forecast uncertainty.
 
-Placement is coordinated with resource reservation rather than treated as a separate action. Before a workload is committed to a worker, Aegis verifies that the worker is still eligible and that the required capacity remains available. The workload assignment and resource state are then updated together, preventing concurrent scheduling decisions from independently claiming the same capacity.
+Worker selection is kept separate from final resource reservation. Before a placement is committed, Aegis revalidates the selected worker against current cluster state and reserves the required resources as part of the placement operation. This prevents a decision made from an earlier snapshot from being committed after the worker has become unhealthy, lost capacity, or no longer satisfies the workload's topology requirements.
 
-Alongside this scheduling path, Aegis maintains recent worker telemetry and produces short horizon forecasts of memory and compute utilization. These forecasts provide the scheduler with information about developing resource pressure, allowing worker selection to consider both current conditions and where those conditions may be heading.
+This design gives Aegis a scheduling path that combines current resource awareness with forward looking placement decisions while preserving correctness when cluster conditions change concurrently. 
 
-Hard constraints determine where a workload can safely run, while resource scoring and predictive signals help Aegis choose the most efficient placement among eligible workers.
+## Benchmark Results
+
+Aegis includes a synthetic benchmark that compares baseline, predictive, and risk-aware scheduling against the same stream of 48 simulated workloads. The benchmark evaluates how each policy responds as forecast conditions change while workload demand and available resources remain consistent.
+
+| Forecast Regime          | Policy     | Placements | Rejections | Pressure Steps | Contention Transitions |
+| ------------------------ | ---------- | ---------: | ---------: | -------------: | ---------------------: |
+| Steady Forecast          | Baseline   |         48 |          0 |             34 |                      8 |
+| Steady Forecast          | Predictive |         48 |          0 |             33 |                     10 |
+| Steady Forecast          | Risk-Aware |         48 |          0 |             27 |                     27 |
+| Rising Forecast Pressure | Baseline   |         48 |          0 |             34 |                      8 |
+| Rising Forecast Pressure | Predictive |         48 |          0 |             27 |                      9 |
+| Rising Forecast Pressure | Risk-Aware |         48 |          0 |             22 |                     16 |
+| Forecast Uncertainty     | Baseline   |         48 |          0 |             34 |                      8 |
+| Forecast Uncertainty     | Predictive |         48 |          0 |             37 |                      3 |
+| Forecast Uncertainty     | Risk-Aware |         48 |          0 |             22 |                     16 |
+
+All three policies placed all 48 workloads without rejection in these runs, but their behavior under resource pressure differed. Under rising forecast pressure, the risk-aware policy reduced recorded pressure steps from 34 for the baseline to 22, while the predictive policy recorded 27. Under forecast uncertainty, risk-aware scheduling again recorded 22 pressure steps compared with 34 for baseline and 37 for predictive scheduling.
+
+The results also show that lower resource pressure does not automatically mean better performance on every scheduling metric. Risk aware scheduling produced more contention transitions in these experiments, while predictive scheduling produced fewer transitions in the uncertainty regime. The benchmark is therefore intended to expose scheduling tradeoffs rather than demonstrate that one policy dominates every metric.
+
+These results come from Aegis's controlled simulation environment rather than physical GPU hardware. They demonstrate differences in control-plane behavior under identical simulated workload demand and should not be interpreted as production GPU performance measurements.
+
 
 ## LLM Workload Model
 
-LLM inference workloads can place very different demands on the same GPU. Aegis represents those differences directly so placement decisions are based on the workload being scheduled rather than GPU availability alone.
+LLM inference workloads can place very different demands on the same GPU, so Aegis represents workload requirements explicitly rather than treating every request as interchangeable. The workload model captures characteristics such as model identity, token volume, batch size, GPU memory requirements, KV-cache demand, expected compute intensity, latency targets, priority, and expected duration.
 
-Each workload captures its model, prompt size, generation limit, batch size, GPU memory requirement, KV-cache demand, expected compute intensity, latency target, priority, and expected duration. Together, these characteristics provide the control plane with a more useful representation of the resources and service requirements associated with the workload.
+Memory requirements are modeled to avoid double counting. `RequiredMemoryMB` represents the workload's total GPU memory reservation, while `KVCacheMemoryMB` identifies the portion associated with KV-cache demand. The scheduler therefore reserves the total memory requirement once while retaining information about how that demand is composed.
 
-Memory is modeled carefully to avoid double counting. `RequiredMemoryMB` represents the workload's total GPU memory reservation, while `KVCacheMemoryMB` identifies the portion associated with KV-cache demand. The scheduler therefore reserves the total requirement once rather than adding KV-cache memory on top of an amount that already includes it.
-
-Workloads also carry lifecycle state and placement information, allowing Aegis to track them from arrival through scheduling, placement, execution, recovery, completion, or failure. This gives the control plane a consistent representation of both what a workload requires and where it is in the scheduling lifecycle.
-
-By modeling workload demand explicitly, Aegis creates the foundation for placement decisions that account for the cost of running a particular inference workload instead of treating all requests as interchangeable.
+The model also tracks placement and lifecycle state, allowing workloads to move from admission through scheduling, execution, recovery, completion, or failure. These characteristics give the scheduler information about both the resources a workload requires and how it should be handled throughout its lifecycle.
 
 ## GPU Topology
 
-Available GPU capacity does not tell the scheduler how that GPU is connected to the rest of the infrastructure. For inference workloads, placement can also depend on where a GPU is located and the communication path available to it.
+Available GPU capacity alone does not determine whether a worker is an appropriate placement target. Where a GPU is located and how it is connected to the surrounding infrastructure can also affect whether it satisfies a workload's requirements.
 
-Aegis represents GPU topology explicitly. Workers can be identified by node, rack, GPU index, NVLink domain, and interconnect type, while workloads can specify corresponding placement requirements. This allows topology to become an eligibility constraint rather than an assumption hidden inside the scheduler.
+Aegis represents topology using node, rack, GPU index, NVLink domain, and interconnect information. Workloads can specify corresponding topology requirements, allowing the scheduler to exclude workers that do not satisfy the required infrastructure constraints before comparing their resource characteristics.
 
-During worker selection, Aegis removes workers that do not satisfy the workload's topology requirements before scoring begins. A worker with excellent memory and compute availability is therefore not considered a valid placement if it does not meet the required infrastructure constraints.
-
-Keeping topology eligibility separate from resource scoring prevents an attractive utilization score from overriding a physical placement requirement. It also provides a foundation for more advanced scheduling decisions where communication cost and data movement become increasingly important as workloads span larger GPU environments.
+Topology remains a hard constraint throughout the placement process. Aegis checks these requirements during worker selection and revalidates them when the placement is committed, preventing an otherwise attractive utilization or risk score from overriding an infrastructure requirement.
 
 ## Cluster State & Concurrency
 
-Scheduling depends on an accurate view of the cluster. Aegis maintains shared state for workers, workloads, resource availability, assignments, and worker health so scheduling decisions operate against a consistent representation of the system.
+Scheduling decisions depend on a consistent view of workers, workloads, resource availability, and placement state. Aegis maintains this information in a concurrency-safe in-memory state store so multiple control-plane operations can interact with shared cluster state without unsafe access.
 
-The challenge is that scheduling operations can happen concurrently. Two workloads may inspect the same worker before either placement is complete, both observe sufficient capacity, and both attempt to reserve resources that cannot support them together. Checking capacity before placement is therefore not enough; the resource state must still be valid when the placement is committed.
+Worker selection and resource reservation are intentionally separated. A scheduler can identify a suitable worker from a snapshot, but cluster conditions may change before that placement is committed. Aegis therefore revalidates the workload and selected worker while holding exclusive access to cluster state before modifying resources.
 
-Aegis protects shared cluster state with concurrency-safe access and coordinates workload placement with resource reservation. Before committing a placement, the system verifies that the selected worker remains eligible and still has sufficient capacity. The worker's available memory and workload count are updated alongside the workload assignment so the resources consumed by the placement are immediately reflected in cluster state.
+During the commit, Aegis verifies that the workload is still schedulable, the worker remains healthy, topology requirements are still satisfied, and sufficient GPU memory remains available. Only after those checks succeed are the worker's resources and workload assignment updated.
 
-This prevents independently valid scheduling decisions from creating an invalid combined allocation. It also gives subsequent scheduling operations an updated view of available capacity, keeping resource accounting consistent as multiple workloads compete for the same GPU infrastructure.
+This prevents concurrent scheduling decisions from independently claiming the same capacity and keeps resource accounting consistent as workloads enter and leave the system.
 
 ## Workload Scheduling & Worker Scoring
 
-Once Aegis identifies the workers capable of running a workload, it evaluates the eligible candidates to determine which worker represents the better use of available GPU capacity.
+Once Aegis determines which workers are eligible for a workload, it compares those candidates to determine which represents the best placement under current cluster conditions. The baseline scheduler considers available memory, compute and memory utilization, active workload count, and model locality when evaluating each worker.
 
-Worker scoring considers available memory, current compute and memory utilization, the number of active workloads, and whether the requested model is already available on the worker. Memory headroom increases a worker's score, while existing resource pressure and workload activity reduce it. Model locality provides an additional advantage because a worker that already has the required model is generally a more attractive placement than an otherwise similar worker that does not.
+Workers with greater memory headroom receive a higher score, while existing resource pressure and active workloads reduce it. Model locality provides an additional advantage when the requested model is already cached on a worker, allowing the scheduler to favor an otherwise suitable GPU that can serve the workload without unnecessary model movement.
 
-Eligibility and scoring remain deliberately separate. Worker health, available capacity, and topology requirements determine whether a placement is allowed. Scoring only compares workers that have already passed those checks, preventing a favorable score from overriding a resource or infrastructure constraint.
+Eligibility remains separate from scoring. A favorable score cannot override worker health, memory capacity, or topology requirements. When workers receive the same score, Aegis uses a deterministic tie-break so identical cluster state produces reproducible placement decisions.
 
-Scheduling is deterministic, so the same workload evaluated against the same cluster state produces the same selection. This makes placement behavior reproducible and provides a stable baseline against which predictive scheduling decisions can be evaluated.
+This baseline policy provides the foundation for the predictive and risk-aware scheduling layers, which introduce information about expected future resource conditions without removing the scheduler's existing safety constraints.
 
 ## Telemetry, Forecasting & Uncertainty
 
-Aegis uses worker telemetry to track how GPU resource conditions change over time rather than relying only on the latest utilization reading. Each worker maintains a bounded history of memory and compute utilization, giving the control plane recent resource behavior without allowing telemetry data to grow indefinitely.
+Aegis collects timestamped memory and compute utilization from each worker so scheduling decisions can consider how resource conditions are changing rather than relying only on the latest measurement. Recent observations are maintained as a bounded telemetry history and used to estimate short-horizon utilization trends.
 
-The forecasting layer uses timestamped telemetry to measure how quickly memory and compute utilization are changing and projects those trends across a defined forecast horizon. This allows Aegis to identify developing resource pressure that may not yet be visible from current utilization alone.
+The forecasting layer measures how memory and compute utilization are changing over time and projects those trends across a defined horizon. This gives the scheduler an indication of developing resource pressure that may not yet be apparent from current utilization alone.
 
-Forecasts contain predicted memory and compute utilization along with an indication of expected contention. Aegis also tracks prediction uncertainty by measuring historical forecast error separately for memory and compute using mean absolute error. This gives the system an explicit measure of how much recent predictions have differed from observed resource behavior.
+Because forecasts are imperfect, Aegis also tracks historical prediction error using mean absolute error for memory and compute independently. This provides an explicit measure of recent forecast uncertainty rather than assuming every prediction is equally reliable.
 
-Forecasts are treated as additional scheduling information rather than guaranteed future state. Predictions are timestamped and must remain fresh to influence placement. If predictive information is missing or stale, Aegis falls back to current-state worker scoring so scheduling can continue without depending on the forecasting layer.
+Forecasts are timestamped and only influence scheduling while they remain fresh. If predictive information is missing or stale, Aegis falls back to current-state worker evaluation so placement can continue without depending on the forecasting layer.
 
 ## Predictive Scheduling
 
-Aegis extends its baseline worker scoring with short-horizon resource forecasts. Instead of ranking eligible workers only by their current state, the predictive scheduler also considers the memory and compute pressure expected to develop after placement.
+Aegis extends its baseline scheduling policy by incorporating expected future GPU conditions into worker selection. Instead of evaluating an eligible worker only by its current utilization, the predictive scheduler also considers forecasted memory and compute pressure.
 
-Fresh forecasts influence worker scoring by penalizing GPUs that are expected to become more heavily utilized or enter contention. This allows Aegis to avoid a worker that appears attractive based on current utilization but is trending toward higher resource pressure.
+This allows Aegis to distinguish between a worker that is lightly utilized and expected to remain stable and one that appears equally available now but is trending toward contention. Forecasts influence the choice between eligible workers without replacing the scheduler's health, memory, or topology requirements.
 
-Prediction does not replace the scheduler's safety checks. Worker health, available memory, and topology requirements must still be satisfied before predictive scoring is considered. Forecasts help choose between valid workers; they cannot make an invalid placement acceptable.
+Predictive scheduling remains resilient to missing information. When a usable forecast is unavailable, Aegis returns to baseline worker scoring rather than blocking placement or making assumptions about future resource conditions.
 
-Aegis also avoids making scheduling dependent on the forecasting system. If a prediction is missing or stale, the scheduler falls back to its baseline scoring behavior using current cluster state. This keeps placement deterministic and operational even when predictive information is unavailable.
+## Risk-Aware Scheduling
+
+Forecasting future utilization is useful, but a prediction should not be treated as certain. Aegis extends predictive scheduling with a risk-aware policy that considers both expected resource pressure and the recent accuracy of those predictions.
+
+For each eligible worker, Aegis evaluates predicted memory and compute utilization together with observed forecast error and the resource demand of the workload being placed. This produces a placement risk that reflects not only how constrained a worker is expected to become, but also how much uncertainty exists around that expectation.
+
+When fresh risk information is available, the scheduler prioritizes workers with lower placement risk before using baseline worker scoring to resolve remaining differences. This allows Aegis to avoid relying too heavily on an attractive forecast when recent prediction error suggests that forecast may be less dependable.
+
+Risk evaluation remains part of worker selection rather than a replacement for placement safety. Worker health, available memory, and topology requirements must still be satisfied before a workload can be committed.
 
 ## Worker Health & Failure Recovery
 
-A workload control plane must account for failures that occur after placement. Aegis tracks worker health through heartbeats and uses worker state to prevent new workloads from being assigned to infrastructure that is degraded, unhealthy, or being drained.
+Aegis monitors worker health so scheduling decisions reflect whether infrastructure remains available after it enters the cluster. Workers that stop reporting within the expected heartbeat window can transition to an unhealthy state and are excluded from new workload placement.
 
-When a worker stops reporting within the expected heartbeat window, Aegis can transition it to an unhealthy state and remove it from normal scheduling eligibility. This prevents the scheduler from continuing to place workloads on a worker whose availability can no longer be trusted.
+Worker failure also affects workloads that have already been assigned. When Aegis detects an unhealthy worker, the reconciliation path identifies its affected workloads and releases the resources associated with those placements. Checkpointable workloads can transition into recovery and return to the scheduling path, while workloads that cannot be recovered transition to a failed state.
 
-Aegis tracks workload state so failures can be handled beyond simply marking the worker unavailable. Workloads affected by worker failure can move through recovery states, and checkpointable workloads can be returned to the scheduling path for placement on another eligible worker.
+Keeping health detection, resource cleanup, and rescheduling coordinated allows the control plane to respond to infrastructure failure without leaving stale workload assignments or reserved GPU capacity behind.
 
-Separating failure detection from recovery keeps the control plane responsible for both sides of the problem: identifying when infrastructure should no longer receive work and determining what should happen to workloads that were already assigned to it.
+## Workload Lifecycle & Resource Release
+
+Aegis tracks workloads beyond the initial scheduling decision so reserved GPU capacity can be returned to the cluster as execution progresses. The simulator maintains active workloads and advances them according to their expected duration, allowing completed work to leave the system rather than consuming resources indefinitely.
+
+When a workload completes, Aegis releases its reserved GPU memory, decreases the worker's active workload count, adjusts simulated compute utilization, and transitions the workload to a completed state. The released capacity then becomes available for future scheduling decisions.
+
+Modeling completion and resource release is important for evaluating scheduling behavior over time. Without a workload lifecycle, resource pressure would only accumulate, making it impossible to observe how different placement policies behave as GPU capacity is consumed and later returned to the cluster.
 
 ## Simulation & Testing
 
-Aegis currently operates against simulated GPU workers, allowing scheduling, resource allocation, forecasting, failure recovery, and concurrency behavior to be exercised without requiring a physical multi-GPU cluster.
+Aegis operates against simulated GPU workers so the scheduling and control-plane architecture can be exercised without requiring a physical multi-GPU cluster. The simulation generates changing resource conditions and workload activity, allowing the system to evaluate placement decisions as memory and compute pressure evolve over time.
 
-The simulator generates changing memory and compute utilization so the control plane can observe resource pressure over time and produce telemetry-driven forecasts. Workloads with different memory, compute, latency, priority, and inference characteristics can then be scheduled against these changing cluster conditions.
+The test suite focuses on control-plane correctness across scheduling, resource reservation, topology constraints, forecasting, risk-aware placement, workload recovery, and concurrent state access. It also tests cases where cluster conditions change between worker selection and placement commit, ensuring that invalid placements are rejected without partially modifying resource state.
 
-Testing focuses on control-plane correctness rather than only successful execution paths. The test suite covers workload and worker validation, topology constraints, scheduling decisions, resource reservation, predictive placement, stale-forecast fallback, failure recovery, and concurrent state access.
-
-Aegis is also tested with Go's race detector to identify unsafe concurrent memory access. This is particularly important for cluster state and placement operations, where multiple scheduling actions may interact with the same workers and workloads.
-
-The simulation does not claim to reproduce the full behavior of production GPU hardware. Its purpose is to provide a controlled environment for validating Aegis's scheduling and control-plane logic before integration with real GPU telemetry and infrastructure.
+Aegis is tested with Go's race detector in addition to the standard test suite. The simulation is not intended to reproduce the full behavior of production GPU hardware; it provides a controlled environment for validating scheduling behavior and comparing placement policies before integration with real GPU infrastructure.
 
 ## HTTP API
 
-Aegis exposes an HTTP API for interacting with control-plane state and submitting cluster resources and workloads. The API provides endpoints for registering and inspecting workers, submitting and inspecting workloads, and checking service health.
+Aegis exposes an HTTP API for interacting with the control plane, including registering workers, submitting workloads, inspecting cluster state, and initiating scheduling operations. Requests are validated before entering cluster state so invalid worker or workload definitions do not influence scheduling decisions.
 
-Worker and workload requests are validated before they enter cluster state, ensuring malformed resource descriptions or invalid lifecycle states are rejected before they can influence scheduling.
+Scheduling initiated through the API uses the same configured scheduling service as the background control-plane loop. This keeps placement behavior consistent regardless of whether scheduling occurs automatically or through an API request.
 
-Current endpoints include:
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/healthz` | Check control-plane health |
-| `POST` | `/v1/workers` | Register a worker |
-| `GET` | `/v1/workers` | List registered workers |
-| `POST` | `/v1/workloads` | Submit a workload |
-| `GET` | `/v1/workloads` | List workloads |
-
-The API is intentionally focused on exercising the control-plane architecture and is not currently hardened as a production-facing service. Authentication, authorization, rate limiting, and production API lifecycle management remain outside the current implementation.
+The API is currently designed for development and simulation rather than production exposure. Authentication, authorization, rate limiting, and other production API controls are outside the current implementation.
 
 ## Running Aegis
 
-Aegis is written in Go and can be run locally without physical GPU hardware. The simulation environment allows the control-plane logic, scheduling behavior, telemetry, and failure handling to be exercised locally.
-
-### Clone the Repository
+Aegis can be run locally without physical GPU hardware. After cloning the repository, the full test suite can be run before starting the control plane.
 
 ```bash
 git clone https://github.com/hannasotolongo/aegis-llm-control-plane.git
 cd aegis-llm-control-plane
-```
-
-### Run the Test Suite
-
-```bash
 go test ./...
-```
-
-Run the tests with Go's race detector to check for unsafe concurrent memory access:
-
-```bash
 go test -race ./...
 ```
 
-### Start the Control Plane
+Start the control plane with:
 
 ```bash
 go run ./cmd/aegis
 ```
 
-Aegis starts the HTTP server on port `8080`.
-
-### Verify the Service
+The HTTP server runs on port `8080`. Its health endpoint can be verified with:
 
 ```bash
 curl http://localhost:8080/healthz
 ```
 
-Expected response:
+A healthy instance returns:
 
 ```json
 {
@@ -176,39 +180,45 @@ Expected response:
 }
 ```
 
+The synthetic benchmark can be run separately to compare baseline, predictive, and risk-aware scheduling behavior across the configured forecast conditions.
+
+```bash
+go run ./cmd/benchmark
+```
+
 ## Repository Structure
 
-Aegis is organized around separate control-plane responsibilities so scheduling, state management, prediction, telemetry, and API behavior can evolve independently.
+Aegis is organized into focused packages that separate cluster state, scheduling, prediction, risk evaluation, simulation, telemetry, and API behavior.
 
 ```text
 aegis-llm-control-plane/
 ├── cmd/
-│   └── aegis/              # Control-plane entry point and service startup
+│   ├── aegis/          # Control-plane runtime
+│   └── benchmark/      # Synthetic scheduler benchmark
 │
 ├── internal/
-│   ├── api/                # HTTP API and request handling
-│   ├── cluster/            # Worker, workload, topology, and cluster state
-│   ├── predictor/          # Resource forecasting and uncertainty estimation
-│   ├── scheduler/          # Eligibility, worker scoring, and workload placement
-│   └── telemetry/          # Worker telemetry collection and resource history
+│   ├── api/            # HTTP API
+│   ├── cluster/        # Workers, workloads, topology, and cluster state
+│   ├── predictor/      # Resource forecasting and forecast error
+│   ├── risk/           # Placement-risk evaluation
+│   ├── scheduler/      # Worker selection and workload placement
+│   ├── simulator/      # Simulated GPU environment and workload lifecycle
+│   └── telemetry/      # Resource telemetry collection
 │
-├── go.mod                  # Go module definition
-└── README.md               # Project architecture and documentation
+├── go.mod
+└── README.md
 ```
 
-The `cluster` package defines the shared resource model used throughout Aegis, including workers, workloads, lifecycle state, GPU topology, and concurrency-safe cluster state. The `scheduler` package builds on that state to determine worker eligibility, compare valid placement targets, and coordinate workload placement with resource reservation.
-
-The `telemetry` and `predictor` packages provide the historical and forward-looking resource information used by predictive scheduling. Keeping prediction separate from core cluster state allows Aegis to use forecasts when they are available while preserving a deterministic current-state scheduling path when they are not.
+The separation keeps core scheduling logic independent from the simulator and API. Cluster state provides the shared resource model, while telemetry and forecasting supply the forward-looking information used by predictive and risk-aware scheduling. The runtime in `cmd/aegis` assembles these components into the running control plane.
 
 ## Current Status & Limitations
 
-Aegis is an experimental control-plane implementation designed to validate resource-aware and predictive scheduling behavior for LLM inference workloads. The current system implements the scheduling path from workload admission through worker selection, resource reservation, telemetry-driven prediction, and failure recovery.
+Aegis is an experimental control-plane prototype designed to evaluate resource-aware, predictive, and risk-aware GPU scheduling for LLM inference. The current implementation covers the scheduling lifecycle from workload admission and worker selection through resource reservation, execution, recovery, and resource release.
 
-The project currently operates with simulated GPU workers rather than physical GPU hardware. Resource utilization, worker behavior, and workload demand are generated within the simulation environment, so the project validates control-plane behavior but does not claim measured performance on a production GPU cluster.
+The system currently operates with simulated GPU workers and synthetic workload demand rather than physical GPU hardware. The benchmark results therefore demonstrate differences in control-plane behavior under controlled conditions and should not be interpreted as production GPU performance measurements.
 
-Cluster state is currently maintained in memory. This keeps the scheduling path focused and testable, but state does not survive a control-plane restart and is not replicated across multiple control-plane instances. A production implementation would require durable state, coordination between control-plane replicas, and stronger recovery guarantees.
+Cluster state is maintained in memory and is concurrency-safe within a single control-plane process, but it is not durable or replicated across multiple instances. A production implementation would require persistent transactional state or another distributed coordination mechanism capable of preserving placement correctness across control-plane replicas.
 
-The forecasting system is intentionally lightweight. It uses recent utilization trends to estimate short-horizon memory and compute pressure and measures historical prediction error using mean absolute error. It is not a machine-learning forecasting model and does not treat its uncertainty estimates as calibrated probabilities.
+The forecasting system is intentionally lightweight and uses recent utilization trends to estimate short-horizon memory and compute pressure. Forecast uncertainty is based on observed mean absolute error and is not intended to represent a calibrated probability or formal confidence bound.
 
-The HTTP API is also designed for development and simulation rather than exposure as a production service. Authentication, authorization, rate limiting, persistent storage, production observability, and integration with real GPU telemetry remain outside the current implementation.
-The `api` package exposes the control plane through HTTP, while `cmd/aegis` assembles the components and starts the running service. This separation keeps the entry point small and places scheduling behavior inside focused packages that can be tested independently.
+Integration with real GPU telemetry, production inference infrastructure, distributed control-plane coordination, authentication, persistent storage, high availability, and production observability remain outside the current implementation. These limitations keep the project focused on its central systems question: whether GPU placement can be improved by combining workload requirements and current resource state with predicted pressure and the uncertainty associated with those predictions.
