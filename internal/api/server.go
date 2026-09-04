@@ -11,14 +11,19 @@ import (
 )
 
 type Server struct {
-	store cluster.StateStore
-	mux   *http.ServeMux
+	store     cluster.StateStore
+	scheduler *scheduler.Service
+	mux       *http.ServeMux
 }
 
-func NewServer(store cluster.StateStore) *Server {
+func NewServer(
+	store cluster.StateStore,
+	schedulerService *scheduler.Service,
+) *Server {
 	s := &Server{
-		store: store,
-		mux:   http.NewServeMux(),
+		store:     store,
+		scheduler: schedulerService,
+		mux:       http.NewServeMux(),
 	}
 
 	s.registerRoutes()
@@ -48,9 +53,7 @@ func (s *Server) handleSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	service := scheduler.NewService(s.store)
-
-	placed, err := service.SchedulePending(r.Context())
+	placed, err := s.scheduler.SchedulePending(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -254,7 +257,10 @@ func handlePlacementPath(s *Server, w http.ResponseWriter, r *http.Request, work
 		return
 	}
 
-	placed, err := scheduler.PlaceWorkload(r.Context(), s.store, workloadID)
+	placed, err := s.scheduler.PlaceWorkload(
+		r.Context(),
+		workloadID,
+	)
 	if err != nil {
 		switch {
 		case errors.Is(err, cluster.ErrWorkloadNotFound):

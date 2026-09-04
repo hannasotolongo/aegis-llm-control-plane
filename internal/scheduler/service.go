@@ -80,7 +80,7 @@ func (s *Service) SchedulePending(
 	)
 
 	for _, workload := range ordered {
-		result, err := s.placeWorkload(
+		result, err := s.PlaceWorkload(
 			ctx,
 			workload.ID,
 		)
@@ -104,7 +104,7 @@ func (s *Service) SchedulePending(
 	return placed, nil
 }
 
-func (s *Service) placeWorkload(
+func (s *Service) PlaceWorkload(
 	ctx context.Context,
 	workloadID string,
 ) (cluster.Workload, error) {

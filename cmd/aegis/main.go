@@ -136,7 +136,10 @@ func main() {
 		}
 	}()
 
-	apiServer := api.NewServer(store)
+	apiServer := api.NewServer(
+		store,
+		riskAwareScheduler,
+	)
 
 	server := &http.Server{
 		Addr:    ":8080",
