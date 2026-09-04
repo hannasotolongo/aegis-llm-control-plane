@@ -478,3 +478,43 @@ func TestExplainWorkerScore(t *testing.T) {
 		)
 	}
 }
+
+func TestSelectWorkerBreaksExactScoreTieByWorkerID(t *testing.T) {
+	workload := cluster.Workload{
+		ID:               "workload-1",
+		ModelID:          "llama-3",
+		RequiredMemoryMB: 1000,
+		State:            cluster.WorkloadPending,
+	}
+
+	workers := []cluster.Worker{
+		{
+			ID:                  "worker-b",
+			AvailableMemoryMB:   64000,
+			ComputeUtilization:  20,
+			MemoryUtilization:   20,
+			ActiveWorkloadCount: 1,
+			State:               cluster.WorkerHealthy,
+		},
+		{
+			ID:                  "worker-a",
+			AvailableMemoryMB:   64000,
+			ComputeUtilization:  20,
+			MemoryUtilization:   20,
+			ActiveWorkloadCount: 1,
+			State:               cluster.WorkerHealthy,
+		},
+	}
+
+	selected, err := SelectWorker(workload, workers)
+	if err != nil {
+		t.Fatalf("SelectWorker returned error: %v", err)
+	}
+
+	if selected.ID != "worker-a" {
+		t.Fatalf(
+			"expected deterministic tie-break to select worker-a, got %q",
+			selected.ID,
+		)
+	}
+}

@@ -40,7 +40,9 @@ func SelectWorker(
 
 		score := scoreWorker(workload, worker)
 
-		if !found || score > selectedScore {
+		if !found ||
+			score > selectedScore ||
+			(score == selectedScore && worker.ID < selected.ID) {
 			selected = worker
 			selectedScore = score
 			found = true
