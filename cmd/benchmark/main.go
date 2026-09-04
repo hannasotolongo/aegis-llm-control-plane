@@ -73,6 +73,10 @@ func main() {
 			Name:        "Forecast Uncertainty",
 			Predictions: uncertaintyPredictions,
 		},
+		{
+			Name:        "Stale Forecast",
+			Predictions: stalePredictions,
+		},
 	}
 
 	for _, s := range scenarios {
@@ -642,6 +646,45 @@ func uncertaintyPredictions(
 					Uncertainty: predictor.Uncertainty{
 						MemoryError:  memoryError,
 						ComputeError: computeError,
+						SampleCount:  20,
+					},
+				},
+			}
+	}
+
+	return &benchmarkPredictionProvider{
+		results: results,
+	}
+}
+
+func stalePredictions(
+	workers []cluster.Worker,
+) *benchmarkPredictionProvider {
+	results := make(
+		map[string]predictor.Result,
+		len(workers),
+	)
+
+	// Deliberately make these predictions older than the
+	// scheduler's 15-second freshness window.
+	generatedAt := time.Now().Add(
+		-30 * time.Second,
+	)
+
+	for _, worker := range workers {
+		results[worker.ID] =
+			predictor.Result{
+				GeneratedAt: generatedAt,
+				Forecast: predictor.Forecast{
+					// These values are intentionally extreme.
+					// A correct scheduler must ignore them because
+					// the prediction is stale.
+					PredictedMemoryUtilization:  100,
+					PredictedComputeUtilization: 100,
+					PredictedContention:         true,
+					Uncertainty: predictor.Uncertainty{
+						MemoryError:  30,
+						ComputeError: 30,
 						SampleCount:  20,
 					},
 				},
