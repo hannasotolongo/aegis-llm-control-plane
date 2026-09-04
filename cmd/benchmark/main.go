@@ -62,17 +62,16 @@ func main() {
 
 	scenarios := []scenario{
 		{
-			Name:        "Steady Load",
+			Name:        "Steady Forecast",
 			Predictions: steadyPredictions,
 		},
 		{
-			Name:        "Rising Contention",
+			Name:        "Rising Forecast Pressure",
 			Predictions: risingContentionPredictions,
 		},
 		{
 			Name:        "Forecast Uncertainty",
 			Predictions: uncertaintyPredictions,
-			Diagnostic:  true,
 		},
 	}
 
@@ -798,7 +797,7 @@ func printResult(
 	)
 
 	fmt.Printf(
-		"  Final load imbalance:   %d workloads\n",
+		"  Final active load imbalance: %d workloads\n",
 		result.FinalLoadImbalance,
 	)
 
