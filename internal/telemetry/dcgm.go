@@ -149,7 +149,9 @@ func ApplyDCGMSample(
 	updated := worker
 
 	updated.TotalMemoryMB = sample.FramebufferTotalMB
-	updated.AvailableMemoryMB = sample.FramebufferFreeMB
+	if sample.FramebufferFreeMB < worker.AvailableMemoryMB {
+		updated.AvailableMemoryMB = sample.FramebufferFreeMB
+	}
 	updated.ComputeUtilization = sample.GPUUtilizationPercent
 	updated.MemoryUtilization =
 		float64(sample.FramebufferUsedMB) /
