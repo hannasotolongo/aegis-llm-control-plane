@@ -1,4 +1,4 @@
-# Aegis: Risk Aware GPU Workload Control Plane for LLM Inference
+# Aegis: Risk-Aware GPU Workload Control Plane for LLM Inference
 
 ## Overview
 
