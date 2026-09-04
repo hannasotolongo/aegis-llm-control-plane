@@ -6,11 +6,13 @@ Aegis is an experimental GPU workload control plane designed to improve how limi
 
 A placement that looks efficient at one moment can become inefficient shortly afterward as GPU memory pressure, compute utilization, and competing workload demand evolve. Concurrent scheduling creates an additional challenge because multiple workloads can observe the same available capacity and attempt to claim resources that cannot support them together.
 
-Aegis addresses these problems across the scheduling lifecycle. It maintains concurrency safe cluster state, models LLM workload requirements, accounts for GPU topology and model locality, coordinates placement with resource reservation, monitors worker health, and collects resource telemetry over time.
+Aegis addresses these problems across the scheduling lifecycle. It maintains concurrency-safe cluster state, models LLM workload requirements, accounts for GPU topology and model locality, coordinates placement with resource reservation, monitors worker health, and collects resource telemetry over time.
 
-Recent telemetry is used to forecast short horizon GPU memory and compute utilization. Rather than treating those forecasts as certain, Aegis also considers observed forecast error when evaluating workers. This allows the scheduler to account for current resource state, predicted pressure, and uncertainty before committing a workload to a GPU.
+Recent telemetry is used to forecast short-horizon GPU memory and compute utilization. Rather than treating those forecasts as certain, Aegis also considers observed forecast error when evaluating workers. This allows the scheduler to account for current resource state, predicted pressure, and uncertainty before committing a workload to a GPU.
 
 The goal is to make placement decisions that remain efficient as cluster conditions evolve, reducing avoidable resource contention while making better use of available GPU capacity.
+
+Aegis currently validates these control-plane mechanisms in a simulated multi-GPU environment. Evaluation against real GPU-backed LLM inference workloads is a future integration step.
 
 ## The Problem
 
