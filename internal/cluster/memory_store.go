@@ -285,6 +285,23 @@ func (s *InMemoryStateStore) CommitPlacement(
 			workerID,
 		)
 	}
+
+	if worker.State != WorkerHealthy {
+		return Workload{}, fmt.Errorf(
+			"%w: worker %q is not healthy",
+			ErrPlacementConflict,
+			worker.ID,
+		)
+	}
+
+	if !MatchesTopologyRequirement(workload, worker) {
+		return Workload{}, fmt.Errorf(
+			"%w: worker %q no longer satisfies topology requirements",
+			ErrPlacementConflict,
+			worker.ID,
+		)
+	}
+
 	if workload.State != WorkloadPending &&
 		workload.State != WorkloadQueued {
 		return Workload{}, fmt.Errorf(

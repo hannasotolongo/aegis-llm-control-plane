@@ -650,3 +650,199 @@ func TestReleasePlacementRestoresWorkerResources(t *testing.T) {
 		)
 	}
 }
+
+func TestCommitPlacementRejectsWorkerThatBecameUnhealthy(t *testing.T) {
+	ctx := context.Background()
+	store := NewInMemoryStateStore()
+
+	worker := Worker{
+		ID:                "worker-1",
+		NodeID:            "node-1",
+		TotalMemoryMB:     80000,
+		AvailableMemoryMB: 64000,
+		State:             WorkerHealthy,
+	}
+
+	if err := store.RegisterWorker(ctx, worker); err != nil {
+		t.Fatalf("register worker: %v", err)
+	}
+
+	workload := Workload{
+		ID:               "workload-1",
+		ModelID:          "llama-3",
+		Priority:         PriorityStandard,
+		RequiredMemoryMB: 16000,
+		State:            WorkloadPending,
+	}
+
+	if err := store.CreateWorkload(ctx, workload); err != nil {
+		t.Fatalf("create workload: %v", err)
+	}
+
+	// Simulate the worker changing state after scheduler selection
+	// but before the placement is committed.
+	worker.State = WorkerUnhealthy
+
+	if err := store.UpdateWorker(ctx, worker); err != nil {
+		t.Fatalf("update worker: %v", err)
+	}
+
+	_, err := store.CommitPlacement(
+		ctx,
+		workload.ID,
+		worker.ID,
+	)
+
+	if err == nil {
+		t.Fatal("expected placement on unhealthy worker to fail")
+	}
+
+	if !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf(
+			"expected ErrPlacementConflict, got: %v",
+			err,
+		)
+	}
+
+	storedWorker, err := store.GetWorker(ctx, worker.ID)
+	if err != nil {
+		t.Fatalf("get worker: %v", err)
+	}
+
+	if storedWorker.AvailableMemoryMB != 64000 {
+		t.Fatalf(
+			"expected worker memory to remain 64000 MB, got %d MB",
+			storedWorker.AvailableMemoryMB,
+		)
+	}
+
+	if storedWorker.ActiveWorkloadCount != 0 {
+		t.Fatalf(
+			"expected zero active workloads, got %d",
+			storedWorker.ActiveWorkloadCount,
+		)
+	}
+
+	storedWorkload, err := store.GetWorkload(ctx, workload.ID)
+	if err != nil {
+		t.Fatalf("get workload: %v", err)
+	}
+
+	if storedWorkload.State != WorkloadPending {
+		t.Fatalf(
+			"expected workload to remain %q, got %q",
+			WorkloadPending,
+			storedWorkload.State,
+		)
+	}
+
+	if storedWorkload.AssignedWorkerID != "" {
+		t.Fatalf(
+			"expected workload to remain unassigned, got worker %q",
+			storedWorkload.AssignedWorkerID,
+		)
+	}
+}
+
+func TestCommitPlacementRejectsChangedTopology(t *testing.T) {
+	ctx := context.Background()
+	store := NewInMemoryStateStore()
+
+	worker := Worker{
+		ID:                "worker-1",
+		NodeID:            "node-1",
+		TotalMemoryMB:     80000,
+		AvailableMemoryMB: 64000,
+		State:             WorkerHealthy,
+		Topology: GPUTopology{
+			NodeID:       "node-1",
+			RackID:       "rack-a",
+			GPUIndex:     0,
+			NVLinkDomain: "nvlink-a",
+			Interconnect: InterconnectNVLink,
+		},
+	}
+
+	if err := store.RegisterWorker(ctx, worker); err != nil {
+		t.Fatalf("register worker: %v", err)
+	}
+
+	workload := Workload{
+		ID:               "workload-1",
+		ModelID:          "llama-3",
+		Priority:         PriorityStandard,
+		RequiredMemoryMB: 16000,
+		State:            WorkloadPending,
+		TopologyRequirement: TopologyRequirement{
+			RequiredRackID: "rack-a",
+		},
+	}
+
+	if err := store.CreateWorkload(ctx, workload); err != nil {
+		t.Fatalf("create workload: %v", err)
+	}
+
+	// Simulate topology changing after scheduler selection
+	// but before the placement is committed.
+	worker.Topology.RackID = "rack-b"
+
+	if err := store.UpdateWorker(ctx, worker); err != nil {
+		t.Fatalf("update worker: %v", err)
+	}
+
+	_, err := store.CommitPlacement(
+		ctx,
+		workload.ID,
+		worker.ID,
+	)
+
+	if err == nil {
+		t.Fatal("expected placement with changed topology to fail")
+	}
+
+	if !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf(
+			"expected ErrPlacementConflict, got: %v",
+			err,
+		)
+	}
+
+	storedWorker, err := store.GetWorker(ctx, worker.ID)
+	if err != nil {
+		t.Fatalf("get worker: %v", err)
+	}
+
+	if storedWorker.AvailableMemoryMB != 64000 {
+		t.Fatalf(
+			"expected worker memory to remain 64000 MB, got %d MB",
+			storedWorker.AvailableMemoryMB,
+		)
+	}
+
+	if storedWorker.ActiveWorkloadCount != 0 {
+		t.Fatalf(
+			"expected zero active workloads, got %d",
+			storedWorker.ActiveWorkloadCount,
+		)
+	}
+
+	storedWorkload, err := store.GetWorkload(ctx, workload.ID)
+	if err != nil {
+		t.Fatalf("get workload: %v", err)
+	}
+
+	if storedWorkload.State != WorkloadPending {
+		t.Fatalf(
+			"expected workload to remain %q, got %q",
+			WorkloadPending,
+			storedWorkload.State,
+		)
+	}
+
+	if storedWorkload.AssignedWorkerID != "" {
+		t.Fatalf(
+			"expected workload to remain unassigned, got worker %q",
+			storedWorkload.AssignedWorkerID,
+		)
+	}
+}
